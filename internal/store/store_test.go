@@ -6,7 +6,7 @@ import (
 
 func TestRoundtripVersionsAndRetire(t *testing.T) {
 	t.Setenv("SEC_HOME", t.TempDir())
-	s, err := Init("")
+	s, err := Init("", BackendFile)
 	if err != nil {
 		t.Fatal(err)
 	}

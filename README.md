@@ -39,7 +39,16 @@ sec init
 
 - **Vault**: `~/.config/sec/vault/NAME.age` (age X25519, `filippo.io/age`) + `NAME.json` metadata.
   Ciphertext + names only → commit it to a private repo or `rclone sync` it. Sync is not sec's job.
-- **Identity**: `~/.config/sec/identity.txt` (0600). Back it up. Teammates: `sec recipients --add age1…`.
+- **Identity**: pluggable, the same three backends `Bun.secrets` gives JS, plus a file:
+  `SEC_IDENTITY` env (CI/containers) > OS keyring (macOS Keychain / Secret Service / Windows
+  Credential Manager, via `go-keyring`) > `identity.txt` (0400). `sec init` picks the keyring
+  when one answers, the file otherwise — so a headless Linux box or a container still works.
+  `sec identity` shows which; `sec identity move --to keyring|file` switches (verifies the new
+  location reads back *before* removing the old copy); `sec identity export --out f --confirm`
+  makes a backup for a password manager. Teammates: `sec recipients --add age1…`.
+  What the keyring buys: no plaintext key on disk, so a disk image, a Time Machine backup or an
+  `rclone` of the wrong directory doesn't carry it. It does **not** stop a process running as you
+  from asking the keyring — that exposure is identical to a 0600 file.
 - **Owner vs agent**: a TTY on stdin or `SEC_OWNER=1` is the owner. `get --print`, `export`,
   `--allow-output-only` need it. Agent harnesses run with a piped stdin, so they never have it.
 - **Redaction**: `exec`/`run` scrub each value plus its base64 (with/without trailing newline), hex,

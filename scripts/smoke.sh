@@ -4,7 +4,8 @@ set -eu
 : "${SEC_HOME:?}"
 S="$(cd "$(dirname "$0")/.." && pwd)/bin/sec"
 W=$(mktemp -d); cd "$W"
-$S init >/dev/null
+$S init --backend file >/dev/null
+$S identity | grep -q "backend    : file"
 printf 'hunter2-super-secret' | $S set STRIPE_KEY --tag test --source https://example.com/keys >/dev/null
 out=$($S exec -- sh -c 'echo "{{STRIPE_KEY}}"; echo "{{STRIPE_KEY}}" | base64')
 case "$out" in *hunter2*|*aHVudGVy*) echo "LEAK: $out"; exit 1;; esac
@@ -19,4 +20,6 @@ $S where DB_PW >/dev/null
 $S cert ca >/dev/null && $S cert issue --cn app.local --san localhost --out certs >/dev/null
 $S ls --json | grep -q '"name":"DB_PW"'
 $S audit --since 1h | grep -q rotate
+$S identity export --out id.bak --confirm >/dev/null
+grep -q AGE-SECRET-KEY id.bak
 echo "smoke OK"

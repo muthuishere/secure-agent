@@ -79,6 +79,12 @@ Say what ran, what passed, and which names were used — e.g. "ran integration t
 re-placed in 2 locations; `STAGING_API_KEY` needs the owner to mint a new one at <source>".
 Never quote a value, even a redacted-looking fragment.
 
+## Identity (where the key lives)
+
+`sec identity` reports the backend (OS keyring, file, or `SEC_IDENTITY`) and the public key —
+never the key. Moving, exporting or importing the identity is **owner-only**; if a machine has no
+identity, say so and give the owner the command, don't improvise.
+
 ## Sync is not sec's job
 
 `~/.config/sec/vault/` is ciphertext + names: the owner commits it to a private git repo

@@ -23,17 +23,25 @@ func init() {
 
 func cmdInit(args []string) error {
 	fs := flags("init")
-	imp := fs.String("import-identity", "", "copy an existing age identity file instead of generating")
+	imp := fs.String("import-identity", "", "adopt an existing age identity file instead of generating")
+	backend := fs.String("backend", "", "where to keep the key: keyring | file (default: keyring if the OS store answers)")
 	if _, err := parse(fs, args); err != nil {
 		return err
 	}
-	s, err := store.Init(*imp)
+	if *backend != "" && *backend != string(store.BackendKeyring) && *backend != string(store.BackendFile) {
+		return fmt.Errorf("--backend must be keyring or file")
+	}
+	s, err := store.Init(*imp, store.Backend(*backend))
 	if err != nil {
 		return err
 	}
-	fmt.Printf("initialised %s\n  public key : %s\n  back up    : %s/identity.txt  (0600 — the vault is unreadable without it)\n  vault dir  : %s/vault  (ciphertext only — safe to git-commit or rclone)\n",
-		s.Home, s.PublicKey(), s.Home, s.Home)
-	s.Audit("init", owner.Agent(), nil, nil)
+	info := s.IdentityInfo()
+	fmt.Printf("initialised %s\n  public key : %s\n  identity   : %s  →  %s\n  vault dir  : %s/vault  (ciphertext only — safe to git-commit or rclone)\n",
+		s.Home, info.PublicKey, info.Backend, info.Location, s.Home)
+	if info.Note != "" {
+		fmt.Printf("  ⚠ %s\n", info.Note)
+	}
+	s.Audit("init", owner.Agent(), nil, map[string]string{"backend": string(info.Backend)})
 	return nil
 }
 

@@ -23,6 +23,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"sort"
 	"strings"
 	"time"
@@ -97,7 +98,13 @@ type Store struct {
 	Home       string
 	identity   *age.X25519Identity
 	recipients []age.Recipient
+	backend    Backend
 }
+
+// Backend reports where this vault's identity is kept.
+func (s *Store) BackendName() Backend { return s.backend }
+
+var runtimeGOOS = runtime.GOOS
 
 func Home() string {
 	if h := os.Getenv("SEC_HOME"); h != "" {
@@ -130,10 +137,14 @@ func Initialized() bool {
 	return err == nil
 }
 
-// Init creates the home dir and an age identity. importFrom, if set, is an
-// existing age identity file to copy instead of generating.
-func Init(importFrom string) (*Store, error) {
+// Init creates the home dir and an age identity, stored in the given backend
+// (empty = DefaultBackend). importFrom, if set, is an existing age identity
+// file to adopt instead of generating one.
+func Init(importFrom string, backend Backend) (*Store, error) {
 	s := &Store{Home: Home()}
+	if _, err := os.Stat(s.markerPath()); err == nil {
+		return nil, fmt.Errorf("already initialised: %s", s.Home)
+	}
 	if _, err := os.Stat(s.identityPath()); err == nil {
 		return nil, fmt.Errorf("already initialised: %s", s.identityPath())
 	}
@@ -162,9 +173,10 @@ func Init(importFrom string) (*Store, error) {
 			return nil, err
 		}
 	}
-	body := fmt.Sprintf("# sec identity — created %s\n# public key: %s\n%s\n",
-		time.Now().UTC().Format(time.RFC3339), id.Recipient(), id)
-	if err := os.WriteFile(s.identityPath(), []byte(body), 0o600); err != nil {
+	if backend == "" {
+		backend = DefaultBackend()
+	}
+	if err := s.saveIdentity(backend, id); err != nil {
 		return nil, err
 	}
 	if _, err := os.Stat(s.recipientsPath()); err != nil {
@@ -175,25 +187,14 @@ func Init(importFrom string) (*Store, error) {
 	return Open()
 }
 
-// Open loads the identity and recipients.
+// Open loads the identity (env, keyring, or file) and the recipients list.
 func Open() (*Store, error) {
 	s := &Store{Home: Home()}
-	b, err := os.ReadFile(s.identityPath())
+	id, backend, err := s.loadIdentity()
 	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return nil, fmt.Errorf("not initialised — run `sec init` (home: %s)", s.Home)
-		}
 		return nil, err
 	}
-	ids, err := age.ParseIdentities(bytes.NewReader(b))
-	if err != nil {
-		return nil, fmt.Errorf("identity: %w", err)
-	}
-	x, ok := ids[0].(*age.X25519Identity)
-	if !ok {
-		return nil, errors.New("identity is not X25519")
-	}
-	s.identity = x
+	s.identity, s.backend = id, backend
 	rb, err := os.ReadFile(s.recipientsPath())
 	if err != nil {
 		return nil, err

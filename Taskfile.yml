@@ -1,0 +1,50 @@
+version: '3'
+
+vars:
+  PKG: github.com/muthuishere/secure-agent/internal/version
+  VERSION:
+    sh: git describe --tags --always --dirty 2>/dev/null || echo 0.0.0-dev
+  COMMIT:
+    sh: git rev-parse --short HEAD 2>/dev/null || echo none
+  DATE:
+    sh: date -u +%Y-%m-%dT%H:%M:%SZ
+  LDFLAGS: -X {{.PKG}}.Version={{.VERSION}} -X {{.PKG}}.Commit={{.COMMIT}} -X {{.PKG}}.Date={{.DATE}}
+
+tasks:
+  build:
+    desc: Build bin/sec (version stamped from git)
+    cmds:
+      - go build -ldflags "{{.LDFLAGS}}" -o bin/sec ./cmd/sec
+
+  test:
+    desc: Unit tests
+    cmds:
+      - go test ./...
+
+  lint:
+    desc: go vet + gofmt gate
+    cmds:
+      - go vet ./...
+      - |
+        unformatted=$(gofmt -l ./cmd ./internal)
+        if [ -n "$unformatted" ]; then echo "gofmt: $unformatted" >&2; exit 1; fi
+
+  smoke:
+    desc: End-to-end run of every verb in a throwaway SEC_HOME
+    cmds:
+      - task: build
+      - SEC_HOME=$(mktemp -d) ./scripts/smoke.sh
+
+  ci:
+    desc: The gate
+    cmds:
+      - task: lint
+      - task: test
+      - task: smoke
+
+  install:
+    desc: Install sec to ~/.local/bin and link the agent skill + harness deny rules
+    cmds:
+      - task: build
+      - mkdir -p ~/.local/bin && cp bin/sec ~/.local/bin/sec
+      - ~/.local/bin/sec skill install --from {{.ROOT_DIR}}/skills/sec

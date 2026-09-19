@@ -19,6 +19,7 @@
   <div class="wrap">
     <a class="logo" href="./"><em>sec</em> —&nbsp;credentials broker</a>
     <ul>
+      <li><a href="#demo">Demo</a></li>
       <li><a href="#how">How</a></li>
       <li><a href="#rotate">Rotate</a></li>
       <li><a href="compare.html">Compare</a></li>
@@ -38,13 +39,28 @@
     and scrubs the value back out of everything that comes home.</p>
     <div class="cta">
       <a class="btn btn-primary" href="docs.html#install">Install</a>
-      <a class="btn btn-ghost" href="compare.html">How it differs from Doppler, 1Password, sops</a>
+      <a class="btn btn-ghost" href="#demo">Watch the 3-minute demo</a>
     </div>
   </div>
 </header>
 
+<!-- THE FILM -->
+<section id="demo" style="padding-top:20px">
+  <div class="wrap">
+    <video controls preload="none" poster="media/sec-demo-poster.jpg"
+           style="width:100%;border-radius:14px;border:1px solid var(--border2);display:block;
+                  box-shadow:0 30px 80px -20px rgba(0,0,0,.7)">
+      <source src="media/sec-demo.mp4" type="video/mp4">
+    </video>
+    <p class="cap">One unbroken Claude Haiku 4.5 session against a throwaway vault. <b>Every command in
+    this film was issued by the agent, not typed by a human.</b> It leaks the key doing an ordinary
+    job, gets stopped by the harness, then does the same work through <code>sec</code> — generating,
+    rendering, tracking, rotating and auditing a credential it is never allowed to see.</p>
+  </div>
+</section>
+
 <!-- THE MOMENT -->
-<section id="proof" style="padding-top:20px">
+<section id="proof" style="padding-top:0">
   <div class="wrap">
     <div class="term">
       <div class="bar"><i></i><i></i><i></i><span>a real session — output below is copied verbatim</span></div>
@@ -63,7 +79,10 @@ env: <span class="red">[REDACTED:STRIPE_KEY]</span>
     </div>
     <p class="cap">The real key went to the child process. What came back to the model is a label.
     Redaction covers the raw value <em>and</em> its base64 (with and without trailing newline), hex,
-    URL-encoded and JSON-escaped forms — because a leak rarely comes out in the shape it went in.</p>
+    URL-encoded and JSON-escaped forms — because a leak rarely comes out in the shape it went in.
+    <b>Known limit:</b> scrubbing is line-buffered, so a value deliberately split across newlines
+    (<code>fold -w 12</code>, an <code>xxd</code> dump wrapped at 60 columns) is not caught. Treat
+    redaction as a guard against accidental echo, not against a program built to defeat it.</p>
   </div>
 </section>
 

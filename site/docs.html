@@ -83,7 +83,9 @@ sec init</pre>
         Agent harnesses run with a piped stdin, so they never have it.</li>
       <li><b>Redaction</b> — <code>exec</code> and <code>run</code> scrub each value plus its base64
         (with and without trailing newline), hex, URL-encoded and JSON-escaped forms from stdout and
-        stderr, line-buffered.</li>
+        stderr, line-buffered. <b>Because it is line-buffered, a value split across newlines — e.g.
+        <code>fold -w 12</code>, or an <code>xxd</code> dump wrapped at 60 columns — is not scrubbed.</b>
+        It defends against accidental echo, not against a program written to smuggle the value out.</li>
       <li><b>Placement ledger</b> — <code>env write</code>, <code>render</code>, <code>import</code>,
         <code>gen --env</code> and <code>place</code> all record where a value went; <code>rotate</code>
         replays them.</li>

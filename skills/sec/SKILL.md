@@ -26,6 +26,7 @@ sec exec -- psql "{{STAGING_DB_URL}}" -c "select 1"
 sec exec -f ./scripts/integration.sh -- '{{A_KEY}}'       # script with placeholders inside
 sec run STRIPE_KEY,DB_URL -- go test ./...                # env injection, for tools that want env
 sec render deploy/gcp-sa.json.tpl --out /tmp/sa.json      # config file with secrets → 0600
+sec seal notes.md                                         # the reverse: real values → {{NAME}}
 ```
 
 Output comes back with every value (and its base64/hex/url-encoded forms)
@@ -40,6 +41,8 @@ replaced by `[REDACTED:NAME]`. That is by design — do not try to work around i
 | run a script that needs several | `sec exec -f script.sh -- args` |
 | tool wants env vars | `sec run NAME[=ENVVAR],NAME2 -- cmd` |
 | a config file needs secrets | `sec render template --out file` |
+| a doc/config ALREADY has real values in it | `sec seal file [--out file]` — values → `{{NAME}}`, captured as placements |
+| is this file safe to commit / send | `sec seal file --check` — names what it found, writes nothing, exits 1 |
 | a new password / token | `sec gen --save NAME [--env .env=VAR] [--len 32] [--hex]` |
 | put an existing secret in a .env | `sec env write .env NAME[=VAR]` |
 | what keys are in a .env | `sec env ls .env` |
@@ -50,6 +53,19 @@ replaced by `[REDACTED:NAME]`. That is by design — do not try to work around i
 | local TLS | `sec cert ca` once, then `sec cert issue --cn host --san a,b --out dir` |
 | user pasted a value in chat | `sec set NAME <<'EOF' … EOF` then recommend `sec rotate NAME` |
 | .env already exists in a repo | `sec import path/.env --tag <project>` (file becomes a placement) |
+
+## The two directions
+
+`render` and `seal` are the same door, walked opposite ways:
+
+- **`render`** takes a template of names and writes a file holding real values. That file is
+  live credential material: 0600, vault-only, never committed, never forwarded.
+- **`seal`** takes that file back to `{{NAME}}` placeholders. Render → seal is byte-exact, so a
+  filled copy is disposable — regenerate it per recipient instead of keeping one around.
+
+Anything that leaves the machine goes **sealed**. Before you commit, attach, paste or hand over a
+file you did not author, run `sec seal <file> --check`: it names any live secret in it without you
+— or the owner — having to read the file to find out.
 
 ## Hard rules
 

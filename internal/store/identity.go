@@ -75,8 +75,17 @@ func (s *Store) writeMarker(m *identityMarker) error {
 }
 
 // KeyringAvailable probes the OS credential store with a throwaway item.
-// Headless Linux and containers fail here, which is the point.
+//
+// Only called where the store is local and answers immediately — macOS
+// Keychain and Windows Credential Manager. On Linux the probe would go over
+// DBus to a Secret Service that may not exist (server, container) or may be
+// locked, in which case Unlock blocks waiting for a desktop prompt that will
+// never come in a cron job or an agent session. So Linux never probes; see
+// DefaultBackend.
 func KeyringAvailable() bool {
+	if !keyringIsLocal() {
+		return false
+	}
 	const probe = "sec-probe"
 	if err := keyring.Set(keyringService, probe, "probe"); err != nil {
 		return false
@@ -86,9 +95,18 @@ func KeyringAvailable() bool {
 	return err == nil && v == "probe"
 }
 
-// DefaultBackend picks keyring when one answers, file otherwise.
+// keyringIsLocal reports whether this platform's credential store is a local
+// API call rather than a DBus round trip that can hang.
+func keyringIsLocal() bool {
+	return runtimeGOOS == "darwin" || runtimeGOOS == "windows"
+}
+
+// DefaultBackend picks the OS keyring on macOS and Windows when it answers,
+// and the file everywhere else — Linux servers, containers and CI have no
+// Secret Service, and a desktop one can block on an unlock prompt. Linux
+// users who want the keyring ask for it: `sec init --backend keyring`.
 func DefaultBackend() Backend {
-	if KeyringAvailable() {
+	if keyringIsLocal() && KeyringAvailable() {
 		return BackendKeyring
 	}
 	return BackendFile
@@ -208,8 +226,15 @@ func (s *Store) MoveIdentity(to Backend) error {
 	if to == BackendEnv {
 		return errors.New("SEC_IDENTITY is set by the environment, not by this command — see `sec identity export`")
 	}
-	if to == BackendKeyring && !KeyringAvailable() {
-		return errors.New("no OS credential store answered (headless Linux or container?) — keep the file backend, or set SEC_IDENTITY")
+	if to == BackendKeyring && !keyringIsLocal() {
+		// Not refused: a desktop Linux session with gnome-keyring works fine.
+		// But it is opt-in, and it can block on an unlock prompt, so say so.
+		fmt.Fprintf(os.Stderr, "note: on %s the keyring is the Secret Service over DBus — it needs a running\n"+
+			"      gnome-keyring/KWallet session. In cron, containers or an SSH session it will fail\n"+
+			"      or block on an unlock prompt. Use the file backend, or SEC_IDENTITY, for those.\n", runtimeGOOS)
+	}
+	if to == BackendKeyring && keyringIsLocal() && !KeyringAvailable() {
+		return errors.New("the OS credential store did not answer — keep the file backend, or set SEC_IDENTITY")
 	}
 	if err := s.saveIdentity(to, s.identity); err != nil {
 		return err

@@ -87,3 +87,26 @@ func TestEnvBackendWins(t *testing.T) {
 		t.Fatalf("env roundtrip %q", v)
 	}
 }
+
+// Linux and friends must default to the file backend without ever touching
+// DBus — a probe there can hang an agent on a locked keyring.
+func TestDefaultBackendPerPlatform(t *testing.T) {
+	for _, tc := range []struct {
+		goos string
+		want Backend
+	}{
+		{"linux", BackendFile},
+		{"freebsd", BackendFile},
+	} {
+		old := runtimeGOOS
+		runtimeGOOS = tc.goos
+		got := DefaultBackend()
+		runtimeGOOS = old
+		if got != tc.want {
+			t.Fatalf("%s: got %s want %s", tc.goos, got, tc.want)
+		}
+	}
+	if runtimeGOOS == "darwin" && !keyringIsLocal() {
+		t.Fatal("darwin keyring must count as local")
+	}
+}

@@ -40,9 +40,16 @@ sec init
 - **Vault**: `~/.config/sec/vault/NAME.age` (age X25519, `filippo.io/age`) + `NAME.json` metadata.
   Ciphertext + names only → commit it to a private repo or `rclone sync` it. Sync is not sec's job.
 - **Identity**: pluggable, the same three backends `Bun.secrets` gives JS, plus a file:
-  `SEC_IDENTITY` env (CI/containers) > OS keyring (macOS Keychain / Secret Service / Windows
-  Credential Manager, via `go-keyring`) > `identity.txt` (0400). `sec init` picks the keyring
-  when one answers, the file otherwise — so a headless Linux box or a container still works.
+  `SEC_IDENTITY` env (CI/containers) > OS keyring (macOS Keychain / Windows Credential Manager /
+  Linux Secret Service, via `go-keyring`) > `identity.txt` (0400).
+
+  | platform | default | why |
+  |---|---|---|
+  | macOS, Windows | keyring | local API, answers immediately, no prompt |
+  | Linux, BSD, containers, CI | **file** | a server has no Secret Service; a desktop one is DBus and can block on an unlock prompt that never comes in cron or an agent session |
+
+  Linux desktop users who want gnome-keyring/KWallet opt in: `sec init --backend keyring`
+  (or `sec identity move --to keyring`), which warns about the DBus caveat.
   `sec identity` shows which; `sec identity move --to keyring|file` switches (verifies the new
   location reads back *before* removing the old copy); `sec identity export --out f --confirm`
   makes a backup for a password manager. Teammates: `sec recipients --add age1…`.

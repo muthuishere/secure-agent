@@ -40,9 +40,30 @@ sec init
 - **Vault**: `~/.config/sec/vault/NAME.age` (age X25519, `filippo.io/age`) + `NAME.json` metadata.
   Ciphertext + names only → commit it to a private repo or `rclone sync` it. Sync is not sec's job.
 - **Identity**: pluggable, the same three backends `Bun.secrets` gives JS, plus a file:
-  `SEC_IDENTITY` env (CI/containers) > OS keyring (macOS Keychain / Secret Service / Windows
-  Credential Manager, via `go-keyring`) > `identity.txt` (0400). `sec init` picks the keyring
-  when one answers, the file otherwise — so a headless Linux box or a container still works.
+  `SEC_IDENTITY` env (CI/containers) > OS keyring (macOS Keychain / Windows Credential Manager /
+  Linux Secret Service, via `go-keyring`) > `identity.txt` (0400).
+
+  | situation | default | why |
+  |---|---|---|
+  | macOS / Windows desktop session | keyring | local API, answers immediately, no prompt |
+  | **anything headless** — SSH, container, CI, no `DISPLAY`/DBus | **file** (0400) | every credential store assumes a logged-in desktop; without one it prompts where nobody can answer, and a prompt is a hung agent |
+  | Linux desktop | file, opt in with `--backend keyring` | gnome-keyring/KWallet works, but it's DBus, and the same config in cron or CI would block |
+
+  Headless is detected from `SSH_CONNECTION`/`SSH_TTY`, `/.dockerenv` + cgroups, CI env vars,
+  and (on unix) a missing `DISPLAY`/`WAYLAND_DISPLAY`/`DBUS_SESSION_BUS_ADDRESS`. Override with
+  `SEC_HEADLESS=0|1`. Every keyring call — probe, read, and the write's read-back — is bounded by
+  a 3s timeout, so a locked keychain can never wedge the process.
+
+  **Resolution is automatic and never needs a flag.** Reads try `SEC_IDENTITY`, then the keyring
+  (if the vault prefers it *and* this session can reach it), then `identity.txt`, and use the first
+  that answers — so one home directory works from the desktop that created it and from a cron job
+  or SSH session that can't reach the credential store. Falling back prints one line on stderr so
+  it's never a silent downgrade. `sec identity adopt key.txt` gives a machine its own file copy
+  without changing where the vault prefers to keep the key.
+
+  Two things are refused rather than guessed: `sec init` on a directory that already holds
+  encrypted secrets but no key (generating a fresh one would orphan them forever), and adopting a
+  key whose public key doesn't match the vault's.
   `sec identity` shows which; `sec identity move --to keyring|file` switches (verifies the new
   location reads back *before* removing the old copy); `sec identity export --out f --confirm`
   makes a backup for a password manager. Teammates: `sec recipients --add age1…`.

@@ -48,6 +48,9 @@ type Placement struct {
 func (p Placement) String() string {
 	switch p.Type {
 	case "file":
+		if p.Env != "" {
+			return fmt.Sprintf("file   %s  (%s)  env=%s", p.Path, p.Var, p.Env)
+		}
 		return fmt.Sprintf("file   %s  (%s)", p.Path, p.Var)
 	case "render":
 		return fmt.Sprintf("render %s  <- %s", p.Path, p.Template)

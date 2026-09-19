@@ -48,9 +48,20 @@ func cmdPlace(args []string) error {
 		if spec == "" {
 			continue
 		}
+		// A file placement may name an environment instead of a path.
+		if kind == "file" {
+			path, v, _, err := resolveEnvSpec(spec, name)
+			if err != nil {
+				return err
+			}
+			spec = path + "=" + v
+		}
 		p, err := place.Parse(kind, spec, name)
 		if err != nil {
 			return err
+		}
+		if kind == "file" {
+			p.Env = environmentOf(p.Path)
 		}
 		specs = append(specs, p)
 	}

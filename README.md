@@ -8,7 +8,8 @@ what; `rotate` knows every place a value was put.
 sec init                                                   # age keypair → ~/.config/sec
 printf '%s' "$VALUE" | sec set STRIPE_KEY --source https://dashboard.stripe.com/apikeys
 sec exec -- curl -H "Authorization: Bearer {{STRIPE_KEY}}" https://api.stripe.com/v1/balance
-sec gen --save APP_DB_PW --env infra/vault/dev/.env.dev=DB_PASSWORD
+sec env list                                               # environment → file → key count
+sec gen --save APP_DB_PW --env production=DB_PASSWORD      # an environment NAME, not a guessed .env
 sec place APP_DB_PW --gh muthuishere/app:production --gcp my-project
 sec rotate APP_DB_PW --gen --hook hooks/postgres-rotate.sh  # → re-pushed to .env, GitHub, GCP
 sec where APP_DB_PW                                        # the compromise-day question

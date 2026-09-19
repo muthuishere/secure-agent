@@ -43,16 +43,17 @@ replaced by `[REDACTED:NAME]`. That is by design — do not try to work around i
 | a config file needs secrets | `sec render template --out file` |
 | a doc/config ALREADY has real values in it | `sec seal file [--out file]` — values → `{{NAME}}`, captured as placements |
 | is this file safe to commit / send | `sec seal file --check` — names what it found, writes nothing, exits 1 |
-| a new password / token | `sec gen --save NAME [--env .env=VAR] [--len 32] [--hex]` |
-| put an existing secret in a .env | `sec env write .env NAME[=VAR]` |
-| what keys are in a .env | `sec env ls .env` |
+| a new password / token | `sec gen --save NAME [--env production=VAR] [--len 32] [--hex]` |
+| put an existing secret in an env | `sec env write production NAME[=VAR]` |
+| which environments exist here | `sec env list` — environment → file → key count |
+| what keys are in one | `sec env ls production` (or a path) |
 | record where a secret lives | `sec place NAME --file .env[=VAR] \| --gh owner/repo[:env] \| --gcp project` |
 | where has it been placed / used | `sec where NAME` |
 | leak suspected | `sec where NAME` + `sec audit --name NAME --since 7d`, then rotate |
 | replace a value everywhere | `sec rotate NAME --gen [--hook script]` or ask owner to paste one |
 | local TLS | `sec cert ca` once, then `sec cert issue --cn host --san a,b --out dir` |
 | user pasted a value in chat | `sec set NAME <<'EOF' … EOF` then recommend `sec rotate NAME` |
-| .env already exists in a repo | `sec import path/.env --tag <project>` (file becomes a placement) |
+| .env already exists in a repo | `sec import production --tag <project>` (file becomes a placement) |
 
 ## The two directions
 
@@ -66,6 +67,20 @@ replaced by `[REDACTED:NAME]`. That is by design — do not try to work around i
 Anything that leaves the machine goes **sealed**. Before you commit, attach, paste or hand over a
 file you did not author, run `sec seal <file> --check`: it names any live secret in it without you
 — or the owner — having to read the file to find out.
+
+## Environments — never assume `.env`
+
+A repo usually has several: `.env`, `.env.local`, `infra/vault/production/.env.production`.
+Anywhere a file is wanted you may give an **environment name** instead of a path, and `sec`
+resolves it against the files actually present (`sec env list` shows them). Writing a production
+credential into whatever `.env` happened to be nearby is the failure this prevents, so:
+
+- **Ask which environment** when the task says "the API key" without saying which. Don't default.
+- An environment that doesn't exist is an **error listing the ones that do** — don't retry with `.env`.
+- Template files (`.env.example`, `.env.sample`, `.env.template`, `.env.dist`) are **refused** as
+  write targets; they're committed, and a real value in one is a public leak.
+- `sec where NAME` shows the environment of every file placement, so "is this key in prod too?"
+  is one command.
 
 ## Hard rules
 

@@ -43,13 +43,19 @@ sec init
   `SEC_IDENTITY` env (CI/containers) > OS keyring (macOS Keychain / Windows Credential Manager /
   Linux Secret Service, via `go-keyring`) > `identity.txt` (0400).
 
-  | platform | default | why |
+  | situation | default | why |
   |---|---|---|
-  | macOS, Windows | keyring | local API, answers immediately, no prompt |
-  | Linux, BSD, containers, CI | **file** | a server has no Secret Service; a desktop one is DBus and can block on an unlock prompt that never comes in cron or an agent session |
+  | macOS / Windows desktop session | keyring | local API, answers immediately, no prompt |
+  | **anything headless** — SSH, container, CI, no `DISPLAY`/DBus | **file** (0400) | every credential store assumes a logged-in desktop; without one it prompts where nobody can answer, and a prompt is a hung agent |
+  | Linux desktop | file, opt in with `--backend keyring` | gnome-keyring/KWallet works, but it's DBus, and the same config in cron or CI would block |
 
-  Linux desktop users who want gnome-keyring/KWallet opt in: `sec init --backend keyring`
-  (or `sec identity move --to keyring`), which warns about the DBus caveat.
+  Headless is detected from `SSH_CONNECTION`/`SSH_TTY`, `/.dockerenv` + cgroups, CI env vars,
+  and (on unix) a missing `DISPLAY`/`WAYLAND_DISPLAY`/`DBUS_SESSION_BUS_ADDRESS`. Override with
+  `SEC_HEADLESS=0|1`. Every keyring call — probe, read, and the write's read-back — is bounded by
+  a 3s timeout, so a locked keychain can never wedge the process.
+
+  `sec identity` prints which session it thinks it's in. If you SSH into a Mac whose vault is on
+  the keyring, the read fails fast and tells you to use `SEC_IDENTITY` or move to the file backend.
   `sec identity` shows which; `sec identity move --to keyring|file` switches (verifies the new
   location reads back *before* removing the old copy); `sec identity export --out f --confirm`
   makes a backup for a password manager. Teammates: `sec recipients --add age1…`.

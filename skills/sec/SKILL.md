@@ -81,8 +81,10 @@ Never quote a value, even a redacted-looking fragment.
 
 ## Identity (where the key lives)
 
-`sec identity` reports the backend (OS keyring, file, or `SEC_IDENTITY`) and the public key —
-never the key. Moving, exporting or importing the identity is **owner-only**; if a machine has no
+`sec identity` reports the backend (OS keyring, file, or `SEC_IDENTITY`), whether the session is
+headless, and the public key — never the key. If it errors saying the keyring can't be read in a
+headless session, do not retry or try to unlock anything: report it and give the owner the two
+options it names (`SEC_IDENTITY`, or `sec identity move --to file` from a desktop session). Moving, exporting or importing the identity is **owner-only**; if a machine has no
 identity, say so and give the owner the command, don't improvise.
 
 ## Sync is not sec's job

@@ -82,17 +82,17 @@ func (s *Store) writeMarker(m *identityMarker) error {
 // locked, in which case Unlock blocks waiting for a desktop prompt that will
 // never come in a cron job or an agent session. So Linux never probes; see
 // DefaultBackend.
-func KeyringAvailable() bool {
+func KeyringAvailable() bool { return KeyringCheck() == nil }
+
+// KeyringCheck returns why the credential store is unusable, or nil.
+func KeyringCheck() error {
+	if headless, why := Headless(); headless {
+		return fmt.Errorf("no desktop session (%s)", why)
+	}
 	if !keyringIsLocal() {
-		return false
+		return fmt.Errorf("Secret Service over DBus is not probed automatically on %s", runtimeGOOS)
 	}
-	const probe = "sec-probe"
-	if err := keyring.Set(keyringService, probe, "probe"); err != nil {
-		return false
-	}
-	v, err := keyring.Get(keyringService, probe)
-	keyring.Delete(keyringService, probe)
-	return err == nil && v == "probe"
+	return probeKeyring()
 }
 
 // keyringIsLocal reports whether this platform's credential store is a local
@@ -101,12 +101,12 @@ func keyringIsLocal() bool {
 	return runtimeGOOS == "darwin" || runtimeGOOS == "windows"
 }
 
-// DefaultBackend picks the OS keyring on macOS and Windows when it answers,
-// and the file everywhere else — Linux servers, containers and CI have no
-// Secret Service, and a desktop one can block on an unlock prompt. Linux
-// users who want the keyring ask for it: `sec init --backend keyring`.
+// DefaultBackend picks the OS keyring only when there is a desktop session to
+// hold it — macOS or Windows, not over SSH, not in a container or CI. Anything
+// else gets the file, which works everywhere and never prompts. Linux desktop
+// users who want gnome-keyring/KWallet ask for it explicitly.
 func DefaultBackend() Backend {
-	if keyringIsLocal() && KeyringAvailable() {
+	if KeyringAvailable() {
 		return BackendKeyring
 	}
 	return BackendFile
@@ -136,7 +136,7 @@ func (s *Store) saveIdentity(b Backend, id *age.X25519Identity) error {
 			return fmt.Errorf("keyring: %w", err)
 		}
 		// read back before anyone relies on it
-		got, err := keyring.Get(keyringService, s.keyringAccount())
+		got, err := keyringGet(s.keyringAccount())
 		if err != nil || got != id.String() {
 			return fmt.Errorf("keyring write could not be verified — not switching backend")
 		}
@@ -175,9 +175,13 @@ func (s *Store) loadIdentity() (*age.X25519Identity, Backend, error) {
 	}
 	m, err := s.readMarker()
 	if err == nil && m.Backend == BackendKeyring {
-		raw, err := keyring.Get(keyringService, s.keyringAccount())
-		if err != nil {
-			return nil, BackendKeyring, fmt.Errorf("keyring has no identity for %s: %w\n  (moved machines? restore with `sec identity import <backup>`)", s.Home, err)
+		raw, kerr := keyringGet(s.keyringAccount())
+		if kerr != nil {
+			hint := "moved machines? restore with `sec identity import <backup>`"
+			if headless, why := Headless(); headless {
+				hint = fmt.Sprintf("this is a headless session (%s) and the key lives in the desktop credential store.\n  Set SEC_IDENTITY from a backup, or move the vault to the file backend from a desktop session:\n    sec identity move --to file", why)
+			}
+			return nil, BackendKeyring, fmt.Errorf("cannot read the identity from the keyring (%s): %w\n  %s", s.Home, kerr, hint)
 		}
 		id, err := parseIdentity(raw)
 		return id, BackendKeyring, err
@@ -195,10 +199,13 @@ func (s *Store) loadIdentity() (*age.X25519Identity, Backend, error) {
 
 // IdentityInfo is what `sec identity` reports — never the key itself.
 type IdentityInfo struct {
-	Backend   Backend `json:"backend"`
-	PublicKey string  `json:"public_key"`
-	Location  string  `json:"location"`
-	Note      string  `json:"note,omitempty"`
+	Backend       Backend `json:"backend"`
+	PublicKey     string  `json:"public_key"`
+	Location      string  `json:"location"`
+	Note          string  `json:"note,omitempty"`
+	Headless      bool    `json:"headless"`
+	HeadlessWhy   string  `json:"headless_why,omitempty"`
+	KeyringUsable bool    `json:"keyring_usable"`
 }
 
 func (s *Store) IdentityInfo() IdentityInfo {
@@ -214,6 +221,8 @@ func (s *Store) IdentityInfo() IdentityInfo {
 	if m, err := s.readMarker(); err == nil {
 		info.Note = m.Note
 	}
+	info.Headless, info.HeadlessWhy = Headless()
+	info.KeyringUsable = KeyringAvailable()
 	return info
 }
 
@@ -233,8 +242,15 @@ func (s *Store) MoveIdentity(to Backend) error {
 			"      gnome-keyring/KWallet session. In cron, containers or an SSH session it will fail\n"+
 			"      or block on an unlock prompt. Use the file backend, or SEC_IDENTITY, for those.\n", runtimeGOOS)
 	}
-	if to == BackendKeyring && keyringIsLocal() && !KeyringAvailable() {
-		return errors.New("the OS credential store did not answer — keep the file backend, or set SEC_IDENTITY")
+	if to == BackendKeyring {
+		if headless, why := Headless(); headless {
+			return fmt.Errorf("no desktop session (%s) — the credential store would prompt where nobody can answer.\n  Keep the file backend here, or set SEC_IDENTITY. Override with SEC_HEADLESS=0 if this is wrong", why)
+		}
+		if keyringIsLocal() {
+			if err := probeKeyring(); err != nil {
+				return fmt.Errorf("credential store unusable: %w\n  keep the file backend, or set SEC_IDENTITY", err)
+			}
+		}
 	}
 	if err := s.saveIdentity(to, s.identity); err != nil {
 		return err

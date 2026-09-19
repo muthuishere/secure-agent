@@ -37,8 +37,17 @@ func cmdIdentity(args []string) error {
 		if info.Note != "" {
 			fmt.Printf("note       : %s\n", info.Note)
 		}
-		if info.Backend == store.BackendFile && store.DefaultBackend() == store.BackendFile {
-			fmt.Println("\n(file is the default on this platform — a keyring here is either absent or a\n DBus service that can block an agent; `sec identity move --to keyring` if you want it anyway)")
+		session := "desktop session"
+		if info.Headless {
+			session = "headless (" + info.HeadlessWhy + ")"
+		}
+		fmt.Printf("session    : %s\n", session)
+		if info.Backend == store.BackendFile {
+			if info.KeyringUsable {
+				fmt.Println("\n(an OS credential store is available here — `sec identity move --to keyring`\n keeps the key off disk)")
+			} else if err := store.KeyringCheck(); err != nil {
+				fmt.Printf("\n(file is right for this machine — keyring unusable: %v)\n", err)
+			}
 		}
 		return nil
 

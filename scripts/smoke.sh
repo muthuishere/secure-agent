@@ -12,6 +12,10 @@ $S identity | grep -q "backend    : file"
 printf 'hunter2-super-secret' | $S set STRIPE_KEY --tag test --source https://example.com/keys >/dev/null
 out=$($S exec -- sh -c 'echo "{{STRIPE_KEY}}"; echo "{{STRIPE_KEY}}" | base64')
 case "$out" in *hunter2*|*aHVudGVy*) echo "LEAK: $out"; exit 1;; esac
+# wrapped output is the accidental leak: xxd -p breaks at 60, base64 at 76,
+# fold wherever asked. Strip the newlines back out before looking.
+out=$($S exec -- sh -c 'printf %s {{STRIPE_KEY}} | fold -w 7; printf %s {{STRIPE_KEY}} | xxd -p; printf %s {{STRIPE_KEY}} | base64 | fold -w 9' | tr -d '\r\n')
+case "$out" in *hunter2*|*aHVudGVy*|*68756e746572*) echo "LEAK (wrapped): $out"; exit 1;; esac
 $S exec -- echo '{{STRIPE_KEY}}' 2>/dev/null && { echo "echo must be refused"; exit 1; }
 $S get STRIPE_KEY --print </dev/null 2>/dev/null && { echo "get must be owner-only"; exit 1; }
 $S gen --save DB_PW --env .env=DB_PASSWORD >/dev/null

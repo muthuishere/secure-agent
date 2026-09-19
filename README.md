@@ -59,7 +59,10 @@ sec init
 - **Owner vs agent**: a TTY on stdin or `SEC_OWNER=1` is the owner. `get --print`, `export`,
   `--allow-output-only` need it. Agent harnesses run with a piped stdin, so they never have it.
 - **Redaction**: `exec`/`run` scrub each value plus its base64 (with/without trailing newline), hex,
-  url-encoded and JSON-escaped forms from stdout/stderr, line-buffered.
+  url-encoded and JSON-escaped forms from stdout/stderr. Matching is newline-tolerant — the stream is
+  also searched with `\r`/`\n` removed, because ordinary tools wrap long output (`xxd -p` at 60
+  columns, GNU `base64` at 76, `fold`) and a value in three pieces is still the value. The tail is
+  held back briefly so a match cannot slip through the seam.
 - **Placement ledger**: `env write`, `render`, `import`, `gen --env`, `place` record where a value went.
   `rotate` re-applies to all of them and prints what must be done by hand.
 - **Audit**: `~/.config/sec/audit.ndjson` — action, names, agent, cwd, template. Never values.

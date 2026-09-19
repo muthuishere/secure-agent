@@ -72,17 +72,21 @@ key is <span class="red">[REDACTED:STRIPE_KEY]</span>
 <span class="p">$</span> <span class="c">sec run STRIPE_KEY -- sh -c 'echo "env: $STRIPE_KEY"'</span>
 env: <span class="red">[REDACTED:STRIPE_KEY]</span>
 
-<span class="cm"># and the one that actually matters — the value re-encoded on the way out</span>
-<span class="p">$</span> <span class="c">sec exec -- sh -c 'echo {{STRIPE_KEY}} | base64'</span>
+<span class="cm"># the value re-encoded on the way out</span>
+<span class="p">$</span> <span class="c">sec exec -- sh -c 'printf %s {{STRIPE_KEY}} | base64'</span>
+<span class="red">[REDACTED:STRIPE_KEY]</span>
+
+<span class="cm"># and re-encoded *and* wrapped — one character per line, the worst case</span>
+<span class="p">$</span> <span class="c">sec exec -- sh -c 'printf %s {{STRIPE_KEY}} | fold -w 1'</span>
 <span class="red">[REDACTED:STRIPE_KEY]</span>
 </pre>
     </div>
     <p class="cap">The real key went to the child process. What came back to the model is a label.
     Redaction covers the raw value <em>and</em> its base64 (with and without trailing newline), hex,
     URL-encoded and JSON-escaped forms — because a leak rarely comes out in the shape it went in.
-    <b>Known limit:</b> scrubbing is line-buffered, so a value deliberately split across newlines
-    (<code>fold -w 12</code>, an <code>xxd</code> dump wrapped at 60 columns) is not caught. Treat
-    redaction as a guard against accidental echo, not against a program built to defeat it.</p>
+    Matching is <b>newline-tolerant</b>: ordinary tools wrap long output — <code>xxd -p</code> at 60
+    columns, GNU <code>base64</code> at 76, <code>fold</code> wherever you ask — and a value that comes
+    back in three pieces is still the value, so the stream is searched with the line breaks removed too.</p>
   </div>
 </section>
 

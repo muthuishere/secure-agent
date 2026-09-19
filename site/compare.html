@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>sec vs Doppler, 1Password, Infisical, sops+age, Vault — an honest comparison</title>
+<meta name="description" content="Where sec fits among 2026's secret managers: what op run and doppler run genuinely do better, what only a placement ledger gives you, and which tool to pick for which job.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<nav>
+  <div class="wrap">
+    <a class="logo" href="./"><em>sec</em> —&nbsp;credentials broker</a>
+    <ul>
+      <li><a href="./">Home</a></li>
+      <li><a href="compare.html" aria-current="page">Compare</a></li>
+      <li><a href="docs.html">Docs</a></li>
+      <li><a href="https://github.com/muthuishere/secure-agent">GitHub</a></li>
+    </ul>
+  </div>
+</nav>
+
+<header class="hero">
+  <div class="wrap">
+    <div class="kicker">the landscape, as of September 2026</div>
+    <h1>Most of these are better than sec<span class="ghost"> — at something else.</span></h1>
+    <p class="lede">Secret management split into three jobs that people keep confusing: <b>storing</b> a
+    secret for a team, <b>injecting</b> it into a process, and <b>tracking every copy</b> so you can
+    rotate it. Nearly every tool is excellent at one or two. Here is where each actually lands.</p>
+  </div>
+</header>
+
+<section style="padding-top:20px">
+  <div class="wrap">
+    <div class="sec-kicker">the matrix</div>
+    <h2 class="sec">Five axes that matter once an agent is in the loop.</h2>
+    <div class="tablewrap">
+      <table>
+        <thead>
+          <tr>
+            <th>tool</th>
+            <th>value out of the model</th>
+            <th>fills argv &amp; config files, not just env</th>
+            <th>scrubs the value out of output</th>
+            <th>placement ledger → one-verb rotate</th>
+            <th>no daemon / SaaS</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Doppler <code>doppler run</code></td>
+            <td class="yes">yes</td><td class="no">env only</td><td class="no">no</td><td class="no">no</td><td class="no">hosted SaaS</td>
+          </tr>
+          <tr>
+            <td>1Password <code>op run</code> + Unified Access</td>
+            <td class="yes">yes</td><td class="part">env, plus SDK reads</td><td class="part">masks known refs in output</td><td class="no">no</td><td class="no">account + SDK</td>
+          </tr>
+          <tr>
+            <td>Infisical <code>infisical run</code></td>
+            <td class="yes">yes</td><td class="no">env only</td><td class="no">no</td><td class="no">no</td><td class="part">self-hostable server</td>
+          </tr>
+          <tr>
+            <td>HashiCorp Vault</td>
+            <td class="yes">yes</td><td class="part">via agent templating</td><td class="no">no</td><td class="part">dynamic, short-lived creds instead</td><td class="no">cluster</td>
+          </tr>
+          <tr>
+            <td>sops + age</td>
+            <td class="yes">yes</td><td class="part">files, by decrypting them</td><td class="no">no</td><td class="no">no</td><td class="yes">yes</td>
+          </tr>
+          <tr>
+            <td>AWS Secrets Manager (agent mode)</td>
+            <td class="yes">yes, via a PreToolUse deny hook</td><td class="part">runtime refs</td><td class="no">no</td><td class="no">AWS-scoped</td><td class="no">cloud</td>
+          </tr>
+          <tr>
+            <td>MCP / proxy brokers (agentsecrets, OneCLI…)</td>
+            <td class="yes">yes</td><td class="no">HTTP calls only</td><td class="part">at the proxy</td><td class="part">in the vault only</td><td class="no">proxy + dashboard</td>
+          </tr>
+          <tr class="us">
+            <td>sec</td>
+            <td class="yes">yes, harness-enforced</td><td class="yes"><code>exec</code> / <code>render</code></td><td class="yes">plus base64, hex, url, JSON forms</td><td class="yes">yes</td><td class="yes">single binary</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="cap">Verified against vendor docs and 2026 comparisons in September 2026 — see sources at
+    the bottom. If a cell here is wrong, that's a bug: <a href="https://github.com/muthuishere/secure-agent/issues">open an issue</a>.</p>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <div class="sec-kicker">the honest part</div>
+    <h2 class="sec">What the others do better.</h2>
+    <div class="duo">
+      <div class="pane was">
+        <span class="tag">pick Doppler / Infisical / Vault instead</span>
+        <h3>When the secret belongs to a team, not a laptop</h3>
+        <p>sec has no web dashboard, no project→environment hierarchy, no approval workflow, no RBAC,
+        no audit console, no SSO, and sharing is "add an age recipient". <b>For ten engineers and four
+        environments, that is the wrong tool and you will feel it in week two.</b> Vault additionally
+        does the thing that beats every broker: <b>dynamic, short-lived credentials</b> — a secret that
+        expires in an hour is better than a secret you carefully hid.</p>
+      </div>
+      <div class="pane now">
+        <span class="tag">pick sec</span>
+        <h3>When one person and their agents run everything</h3>
+        <p>An operator with a dozen repos, a VPS, some cron jobs and three coding agents. The real risk
+        isn't a rogue insider — it's <b>a value that got pasted into a session and now lives in four
+        files you'd have to grep for on a bad day</b>. sec answers that with <code>where</code>, one
+        binary, and no service to keep alive. It's a personal-infrastructure tool that is honest about
+        being one.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <div class="sec-kicker">the two real differences</div>
+    <h2 class="sec">Injection isn't the hard part any more. These two still are.</h2>
+    <div class="grid3" style="grid-template-columns:1fr 1fr">
+      <div class="item">
+        <div class="n">01</div>
+        <h3>Output redaction</h3>
+        <p>Every tool here keeps the value out of the model on the way <em>in</em>. Almost none scrub it
+        on the way <em>out</em> — and in an agent loop, output is input. A curl that echoes its own
+        <code>Authorization</code> header, a framework that prints its DSN on a startup error, a test
+        that dumps the config: <b>the value re-enters the context through the result</b>. sec scrubs
+        stdout and stderr line-buffered, including base64, hex, URL-encoded and JSON-escaped forms.</p>
+      </div>
+      <div class="item">
+        <div class="n">02</div>
+        <h3>The placement ledger</h3>
+        <p>Storing a secret is solved. Knowing <b>where all its copies are</b> is not. Every sec write
+        records a placement, so <code>rotate</code> replays them instead of relying on your memory —
+        and prints what it cannot do itself, rather than pretending it's done. Nothing else on this
+        list keeps an outbound copy ledger on the client.</p>
+      </div>
+    </div>
+    <div class="note">
+      <b>Where the industry agrees:</b> 2026's guidance from AWS, Auth0 and 1Password converged on one
+      rule — if you don't want an agent to leak a credential, <b>don't give the credential to the
+      agent</b>; give it a broker and block the read path at the harness. sec implements exactly that
+      rule, with the block as a <code>permissions.deny</code> entry rather than a cloud-specific hook.
+      The disagreement is only about where the broker lives: their answer is a service, sec's answer is
+      a 0600 file and a subprocess.
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <div class="sec-kicker">decision</div>
+    <h2 class="sec">Pick in one line.</h2>
+    <div class="verbs">
+      <div class="verb"><b>team + envs</b><span>Infisical (open source) or Doppler (fastest onboarding). <em>Then use sec locally on top if you like.</em></span></div>
+      <div class="verb"><b>enterprise</b><span>Vault — for dynamic credentials and encryption-as-a-service, not for storing static ones.</span></div>
+      <div class="verb"><b>git-ops config</b><span>sops + age. It's the right shape for encrypted files in a repo, and sec doesn't try to replace it.</span></div>
+      <div class="verb"><b>AWS-only</b><span>Secrets Manager with the agent deny hook. One cloud, one story, no extra tool.</span></div>
+      <div class="verb"><b>you + your agents</b><span><em>sec.</em> Output redaction, argv and config files, a copy ledger, no service to run.</span></div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <h2 class="sec">Sources</h2>
+    <ul class="doc" style="margin-top:18px;color:var(--muted)">
+      <li><a href="https://docs.aws.amazon.com/secretsmanager/latest/userguide/retrieving-secrets-ai-agents.html">AWS — Use secrets safely with AI coding agents</a> (the PreToolUse deny-hook pattern)</li>
+      <li><a href="https://auth0.com/blog/want-ai-agents-that-don-t-spill-secrets-don-t-give-them-secrets/">Auth0 — Want AI agents that don't spill secrets? Don't give them secrets</a></li>
+      <li><a href="https://infisical.com/infisical-vs-doppler">Infisical vs Doppler</a> · <a href="https://www.bytebase.com/blog/best-secrets-manager-for-database-credentials/">Bytebase — Vault vs Infisical vs Doppler (2026)</a></li>
+      <li><a href="https://blog.gitguardian.com/top-secrets-management-tools/">GitGuardian — Top secrets management tools, 2026</a></li>
+      <li><a href="https://eshlox.net/why-infisical-over-vault-doppler-sops">Why Infisical over Vault, Doppler and SOPS</a> (on what sops+age does not do)</li>
+    </ul>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <div>sec — a credentials broker for humans and their agents.</div>
+    <div><a href="https://github.com/muthuishere/secure-agent">github.com/muthuishere/secure-agent</a></div>
+  </div>
+</footer>
+
+</body>
+</html>

@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>sec — your agent uses the key without ever seeing it</title>
+<meta name="description" content="A credentials broker for humans and their coding agents. Agents write {{NAME}} placeholders; sec fills them, runs the work, and scrubs the values out of the output. One Go binary, age-encrypted vault, placement ledger, one-verb rotate. No daemon, no SaaS.">
+<meta property="og:title" content="sec — your agent uses the key without ever seeing it">
+<meta property="og:description" content="Agents write {{NAME}} placeholders. sec fills them, runs the work, scrubs the output. One static Go binary, no daemon, no SaaS.">
+<meta property="og:type" content="website">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<nav>
+  <div class="wrap">
+    <a class="logo" href="./"><em>sec</em> —&nbsp;credentials broker</a>
+    <ul>
+      <li><a href="#how">How</a></li>
+      <li><a href="#rotate">Rotate</a></li>
+      <li><a href="compare.html">Compare</a></li>
+      <li><a href="docs.html">Docs</a></li>
+      <li><a href="https://github.com/muthuishere/secure-agent">GitHub</a></li>
+    </ul>
+  </div>
+</nav>
+
+<header class="hero">
+  <div class="wrap">
+    <div class="kicker">one static Go binary · no daemon · no SaaS</div>
+    <h1>Your agent uses the key.<br><span class="ghost">It never sees the key.</span></h1>
+    <p class="lede">Coding agents need credentials and are the worst possible place to put one — every
+    value they touch lands in a transcript, a prompt cache, a log, a commit. <b>sec</b> hands the agent
+    a placeholder instead. It fills <code>{{NAME}}</code> at the moment of execution, in a child process,
+    and scrubs the value back out of everything that comes home.</p>
+    <div class="cta">
+      <a class="btn btn-primary" href="docs.html#install">Install</a>
+      <a class="btn btn-ghost" href="compare.html">How it differs from Doppler, 1Password, sops</a>
+    </div>
+  </div>
+</header>
+
+<!-- THE MOMENT -->
+<section id="proof" style="padding-top:20px">
+  <div class="wrap">
+    <div class="term">
+      <div class="bar"><i></i><i></i><i></i><span>a real session — output below is copied verbatim</span></div>
+<pre><span class="cm"># the agent writes this. It has never read STRIPE_KEY and cannot.</span>
+<span class="p">$</span> <span class="c">sec exec -- sh -c 'echo "key is {{STRIPE_KEY}}"'</span>
+key is <span class="red">[REDACTED:STRIPE_KEY]</span>
+
+<span class="cm"># same for env-var injection</span>
+<span class="p">$</span> <span class="c">sec run STRIPE_KEY -- sh -c 'echo "env: $STRIPE_KEY"'</span>
+env: <span class="red">[REDACTED:STRIPE_KEY]</span>
+
+<span class="cm"># and the one that actually matters — the value re-encoded on the way out</span>
+<span class="p">$</span> <span class="c">sec exec -- sh -c 'echo {{STRIPE_KEY}} | base64'</span>
+<span class="red">[REDACTED:STRIPE_KEY]</span>
+</pre>
+    </div>
+    <p class="cap">The real key went to the child process. What came back to the model is a label.
+    Redaction covers the raw value <em>and</em> its base64 (with and without trailing newline), hex,
+    URL-encoded and JSON-escaped forms — because a leak rarely comes out in the shape it went in.</p>
+  </div>
+</section>
+
+<!-- ENEMY / PROMISED LAND -->
+<section>
+  <div class="wrap">
+    <div class="sec-kicker">the problem</div>
+    <h2 class="sec">A secret doesn't leak once. It leaks everywhere it was copied.</h2>
+    <p class="sec-sub">The agent era didn't invent credential sprawl. It industrialised it — a value
+    pasted into a prompt is now in a transcript, a cache, a summary and three files nobody kept track of.</p>
+    <div class="duo">
+      <div class="pane was">
+        <span class="tag">without sec</span>
+        <h3>The value is in the conversation</h3>
+        <p>You paste the key so the agent can test the endpoint. It's now in the request body, the
+        response, the session log on disk, the commit the agent made "to save progress", and the
+        summary it wrote when the context compacted. <b>You can't un-paste it — you can only rotate it,
+        and you don't know everywhere it went.</b></p>
+<pre>~/.claude/projects/…/session.jsonl   <span class="bad">← it's in here</span>
+git log -p                            <span class="bad">← and here</span>
+.env.dev, conf.yaml, CI, the ticket   <span class="bad">← and here</span></pre>
+      </div>
+      <div class="pane now">
+        <span class="tag">with sec</span>
+        <h3>The value is in a child process, for 40ms</h3>
+        <p>The agent writes <code>{{STRIPE_KEY}}</code>. sec decrypts, substitutes, execs, scrubs stdout
+        and stderr line by line, and writes one audit line naming the secret — never the value. The
+        harness itself refuses <code>sec get</code>, so the refusal isn't the model's good behaviour,
+        <b>it's a deny rule the model cannot argue with</b>.</p>
+<pre>transcript   <span class="ok">[REDACTED:STRIPE_KEY]</span>
+audit.ndjson <span class="ok">exec STRIPE_KEY claude-code</span>
+vault        <span class="ok">STRIPE_KEY.age (ciphertext)</span></pre>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- HOW -->
+<section id="how">
+  <div class="wrap">
+    <div class="sec-kicker">how it works</div>
+    <h2 class="sec">Three moving parts, none of them a server.</h2>
+    <div class="grid3">
+      <div class="item">
+        <div class="n">01</div>
+        <h3>An age-encrypted vault</h3>
+        <p><code>~/.config/sec/vault/NAME.age</code> — X25519 via <b>filippo.io/age</b>, plus a
+        <code>NAME.json</code> of metadata. Ciphertext and names only, so the directory is safe to
+        commit to a private repo or <code>rclone sync</code>. Sync is deliberately not sec's job.</p>
+      </div>
+      <div class="item">
+        <div class="n">02</div>
+        <h3>A pluggable identity</h3>
+        <p>The same three backends <code>Bun.secrets</code> gives JS, plus a file:
+        <code>SEC_IDENTITY</code> (CI) &gt; OS keyring &gt; <code>identity.txt</code> (0400). macOS and
+        Windows default to the keyring; <b>Linux defaults to the file</b>, because a server has no Secret
+        Service and a desktop one is DBus that can block forever on a prompt nobody is there to answer.</p>
+      </div>
+      <div class="item">
+        <div class="n">03</div>
+        <h3>An owner check with no model in it</h3>
+        <p>A TTY on stdin — or an explicit <code>SEC_OWNER=1</code> — is the owner. Agent harnesses run
+        with a piped stdin, so they never have it. <code>get --print</code>, <code>export</code> and
+        every output-only path <b>fail by construction</b>, not by persuasion.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- BEYOND ENV -->
+<section>
+  <div class="wrap">
+    <div class="sec-kicker">past the env var</div>
+    <h2 class="sec">Most brokers can only fill an environment variable.<br>Half of real config isn't one.</h2>
+    <p class="sec-sub">A TLS key in a YAML file. A token in a CLI argument. A service-account JSON a
+    tool reads by path. <code>exec</code> and <code>render</code> cover the shapes <code>doppler run</code>
+    and <code>op run</code> structurally cannot.</p>
+    <div class="term">
+      <div class="bar"><i></i><i></i><i></i><span>verbatim session</span></div>
+<pre><span class="p">$</span> <span class="c">cat conf.tmpl</span>
+db:
+  password: {{APP_DB_PW}}
+  stripe: {{STRIPE_KEY}}
+
+<span class="p">$</span> <span class="c">sec render conf.tmpl --out conf.yaml</span>
+<span class="ok">✓</span> rendered conf.tmpl → conf.yaml (0600; 2 secret(s), placement recorded)
+
+<span class="p">$</span> <span class="c">sec gen --save APP_DB_PW --len 32 --env .env.dev=DB_PASSWORD</span>
+<span class="ok">✓</span> DB_PASSWORD written to .env.dev (0600)
+<span class="ok">✓</span> APP_DB_PW stored (v1, 32 chars)
+</pre>
+    </div>
+    <p class="cap">The generated password was never printed, never in argv, never in the agent's
+    context — and the output file is 0600. <em>"placement recorded"</em> is the part that pays off next.</p>
+  </div>
+</section>
+
+<!-- ROTATE -->
+<section id="rotate">
+  <div class="wrap">
+    <div class="sec-kicker">the compromise-day question</div>
+    <h2 class="sec">"Where did this key end up?" should be one command, not an afternoon.</h2>
+    <p class="sec-sub">Every write — <code>env write</code>, <code>render</code>, <code>import</code>,
+    <code>gen --env</code>, <code>place</code> — records a placement. Rotation replays the ledger
+    instead of asking you to remember it, and prints the steps a tool honestly cannot do for you.</p>
+    <div class="term">
+      <div class="bar"><i></i><i></i><i></i><span>verbatim session</span></div>
+<pre><span class="p">$</span> <span class="c">sec rotate APP_DB_PW --gen</span>
+<span class="ok">✓</span> APP_DB_PW v1 → v2
+  <span class="ok">✓</span> file   .env.dev  (DB_PASSWORD)
+  <span class="ok">✓</span> render conf.yaml  &lt;- conf.tmpl
+
+MANUAL steps:
+  <span class="warn">⚠</span> the generated value was NOT applied at the source (no --hook) — apply it there, or `sec rotate APP_DB_PW --undo`
+  <span class="warn">⚠</span> restart whatever reads .env.dev
+  <span class="warn">⚠</span> restart whatever reads conf.yaml
+  · when the old value is revoked: sec rotate APP_DB_PW --purge
+
+<span class="p">$</span> <span class="c">sec where APP_DB_PW</span>
+APP_DB_PW  v2  updated 2026-09-19 13:38
+placements (2):
+  file   .env.dev  (DB_PASSWORD)   [2026-09-19]
+  render conf.yaml  &lt;- conf.tmpl   [2026-09-19]
+retired versions still to revoke upstream: v1(09-19)   → `sec audit --retired`, then `sec rotate NAME --purge` once revoked
+activity in the last 30 days (3):
+  09-19 19:08  rotate    claude-code
+  09-19 19:08  render    claude-code
+  09-19 19:08  gen       claude-code
+</pre>
+    </div>
+    <p class="cap">Give it <code>--hook hooks/postgres-rotate.sh</code> and the source is rotated too —
+    the hook receives <code>SEC_NAME</code>, <code>SEC_NEW_VALUE</code> and
+    <code>SEC_OLD_VALUE</code> in its environment, so the value never reaches argv. <code>hooks/</code>
+    ships Postgres and AWS IAM to copy.
+    Note what it <em>refuses</em> to claim: an old version stays listed as "still to revoke upstream"
+    until you tell it the revocation actually happened.</p>
+  </div>
+</section>
+
+<!-- VERBS -->
+<section>
+  <div class="wrap">
+    <div class="sec-kicker">the surface</div>
+    <h2 class="sec">Twenty verbs. You will use six.</h2>
+    <div class="verbs">
+      <div class="verb"><b>sec set</b><span>Store a value from stdin — <em>masked prompt on a TTY, never argv</em>.</span></div>
+      <div class="verb"><b>sec exec</b><span>Run a command or script with <em>{{NAME}} placeholders filled</em>; output scrubbed.</span></div>
+      <div class="verb"><b>sec run</b><span>Run a command with <em>NAME injected as an env var</em>; output scrubbed.</span></div>
+      <div class="verb"><b>sec gen</b><span>Mint a password or token <em>straight into the vault and a .env</em> — never displayed.</span></div>
+      <div class="verb"><b>sec where</b><span><em>Every placement and recent use</em> of a secret. The compromise-day question.</span></div>
+      <div class="verb"><b>sec rotate</b><span>New value → <em>re-pushed to every placement</em> → manual steps listed honestly.</span></div>
+    </div>
+    <p class="cap">The rest — <code>init · ls · env · render · import · export · place · recipients ·
+    identity · cert · audit · rm · get · skill</code> — are in the <a href="docs.html">docs</a>.
+    <code>sec cert</code> also does local TLS (CA, issue, self-signed) with keys written 0600, because
+    a dev cert is a credential that usually ends up world-readable in <code>/tmp</code>.</p>
+  </div>
+</section>
+
+<!-- AGENT SKILL -->
+<section>
+  <div class="wrap">
+    <div class="sec-kicker">the harness, not the model</div>
+    <h2 class="sec">One command installs the skill and the deny rules.</h2>
+    <div class="term">
+      <div class="bar"><i></i><i></i><i></i><span>sec skill install</span></div>
+<pre><span class="p">$</span> <span class="c">sec skill install</span>
+<span class="cm"># symlinks skills/sec → ~/.claude/skills and ~/.agents/skills, then merges into</span>
+<span class="cm"># ~/.claude/settings.json → permissions.deny:</span>
+  Read(~/.config/sec/**)     <span class="cm"># the vault and the identity</span>
+  Read(**/.env*)             <span class="cm"># the files sec writes for you</span>
+  Bash(sec get:*)            <span class="cm"># the print path</span>
+  Bash(sec export:*)         <span class="cm"># the bulk print path</span>
+</pre>
+    </div>
+    <p class="cap">This is the same shape AWS now recommends for agents — a harness-level hook that
+    blocks the read-the-value call outright — except it's four lines in a settings file and works for
+    any credential, not one cloud's. The model is never asked to be trustworthy about it.</p>
+  </div>
+</section>
+
+<!-- HONESTY -->
+<section>
+  <div class="wrap">
+    <div class="sec-kicker">threat model, honestly</div>
+    <h2 class="sec">What this does not defend against.</h2>
+    <div class="note warnbox">
+      <p><b>sec defends against sloppiness and logs</b> — secrets in transcripts, guides, commits,
+      test output, screen-shares, chat.</p>
+      <p style="margin-top:12px">It does <b>not</b> defend against a hostile agent with network access.
+      Such an agent could <code>curl</code> a value to a webhook through <code>exec</code> — and so could
+      every other tool in this category, including the ones that don't say so. What sec adds is that
+      the silly attempt is <b>visible</b>: an audit line names the secret, the command and the agent.
+      Visible, not impossible. Anyone promising otherwise is selling you a proxy and a dashboard.</p>
+    </div>
+  </div>
+</section>
+
+<section style="padding-top:20px">
+  <div class="wrap">
+    <h2 class="sec">Install</h2>
+    <div class="term">
+      <div class="bar"><i></i><i></i><i></i><span>~60 seconds</span></div>
+<pre><span class="p">$</span> <span class="c">git clone https://github.com/muthuishere/secure-agent &amp;&amp; cd secure-agent</span>
+<span class="p">$</span> <span class="c">task install</span>   <span class="cm"># build → ~/.local/bin → link the skill → add the deny rules</span>
+<span class="p">$</span> <span class="c">sec init</span>
+<span class="ok">✓</span> initialised ~/.config/sec
+  public key : age19tgv4r8mzzakg9a94jvgs3fr9xj7p9zclwdny207f7n60puufq4sxyg3r3
+  identity   : keyring  →  macOS Keychain: service=tools.sec
+  vault dir  : ~/.config/sec/vault  (ciphertext only — safe to git-commit or rclone)
+  <span class="warn">⚠</span> key is in the OS credential store; export a backup with `sec identity export`
+</pre>
+    </div>
+    <div class="cta">
+      <a class="btn btn-primary" href="docs.html">Read the docs</a>
+      <a class="btn btn-ghost" href="https://github.com/muthuishere/secure-agent">Source on GitHub</a>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <div>sec — a credentials broker for humans and their agents. Go, <a href="https://filippo.io/age">age</a>, no daemon.</div>
+    <div><a href="https://github.com/muthuishere/secure-agent">github.com/muthuishere/secure-agent</a></div>
+  </div>
+</footer>
+
+</body>
+</html>

@@ -13,6 +13,16 @@ func init() {
 	register("identity", "where the vault key lives; move it between the OS keyring and a file, or back it up", cmdIdentity)
 }
 
+// openForAdopt opens a store whose identity cannot be loaded yet — adopt is
+// precisely the command that fixes that, so it must not require it.
+func openForAdopt() (*store.Store, error) {
+	s, err := open()
+	if err == nil {
+		return s, nil
+	}
+	return store.OpenPartial()
+}
+
 func cmdIdentity(args []string) error {
 	sub := "show"
 	if len(args) > 0 {
@@ -101,6 +111,29 @@ func cmdIdentity(args []string) error {
 		}
 		s.Audit("identity.export", owner.Agent(), nil, map[string]string{"out": *out})
 		fmt.Printf("✓ identity written to %s (0600)\n  store it in a password manager, then delete the file.\n  Without it the vault cannot be decrypted by anyone, including you.\n", *out)
+		return nil
+
+	case "adopt":
+		fs := flags("identity adopt")
+		rest, err := parse(fs, args)
+		if err != nil {
+			return err
+		}
+		if len(rest) != 1 {
+			return fmt.Errorf("usage: sec identity adopt KEY_FILE\n  gives THIS machine a file copy of the vault's key, without changing where\n  the vault prefers to keep it (a desktop keeps using its keyring)")
+		}
+		if err := requireOwner("identity adopt"); err != nil {
+			return err
+		}
+		s, err := openForAdopt()
+		if err != nil {
+			return err
+		}
+		if err := s.AdoptIdentity(rest[0]); err != nil {
+			return err
+		}
+		s.Audit("identity.adopt", owner.Agent(), nil, nil)
+		fmt.Printf("✓ this machine now reads the vault from %s\n  the key file you copied here can be deleted: %s\n", s.IdentityInfo().Location, rest[0])
 		return nil
 
 	case "import":

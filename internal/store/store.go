@@ -148,6 +148,17 @@ func Init(importFrom string, backend Backend) (*Store, error) {
 	if _, err := os.Stat(s.identityPath()); err == nil {
 		return nil, fmt.Errorf("already initialised: %s", s.identityPath())
 	}
+	// A vault dir with secrets but no identity means someone synced the
+	// ciphertext here (git, rclone) and the key has not arrived yet.
+	// Generating a fresh key would leave every one of those files permanently
+	// unreadable, so refuse and say how to bring the real key over.
+	if names, err := s.List(); err == nil && len(names) > 0 {
+		return nil, fmt.Errorf("%s already holds %d encrypted secret(s) but no identity.\n"+
+			"Generating a new key would make them unreadable forever. Bring the vault's key here instead:\n"+
+			"  on a machine that has it:  sec identity export --out key.txt --confirm\n"+
+			"  here:                      sec init --import-identity key.txt\n"+
+			"  or per-process:            export SEC_IDENTITY=\"$(cat key.txt)\"", s.vaultDir(), len(names))
+	}
 	if err := os.MkdirAll(s.vaultDir(), 0o700); err != nil {
 		return nil, err
 	}
@@ -207,7 +218,26 @@ func Open() (*Store, error) {
 	return s, nil
 }
 
-func (s *Store) PublicKey() string { return s.identity.Recipient().String() }
+// OpenPartial returns a store whose identity has not been resolved. Only the
+// commands that install an identity may use it; everything else goes through
+// Open and fails loudly when there is no key.
+func OpenPartial() (*Store, error) {
+	s := &Store{Home: Home()}
+	if _, err := os.Stat(s.Home); err != nil {
+		return nil, fmt.Errorf("no vault at %s — run `sec init`", s.Home)
+	}
+	return s, nil
+}
+
+func (s *Store) PublicKey() string {
+	if s.identity == nil {
+		if m, err := s.readMarker(); err == nil {
+			return m.PublicKey
+		}
+		return "(unknown)"
+	}
+	return s.identity.Recipient().String()
+}
 
 func (s *Store) Recipients() ([]string, error) {
 	b, err := os.ReadFile(s.recipientsPath())

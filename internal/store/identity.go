@@ -163,38 +163,78 @@ func (s *Store) saveIdentity(b Backend, id *age.X25519Identity) error {
 	return s.writeMarker(&identityMarker{Backend: b, PublicKey: id.Recipient().String(), Note: note})
 }
 
-// loadIdentity resolves the key: env, then the marker's backend, then a bare
-// identity.txt (vaults created before backends existed).
+// loadIdentity resolves the key by trying every place it could be, in order
+// of preference, and using the first that answers. Nothing here needs a flag
+// or a decision from the caller:
+//
+//	SEC_IDENTITY   an explicit key for this process (CI, containers, prod)
+//	keyring        when the marker says so and a session can reach it
+//	identity.txt   the file, if one is present
+//
+// The fallthrough is what makes a vault portable: the same home directory
+// works on the desktop that created it (keyring) and from a cron job or an
+// SSH session that cannot reach the credential store (file), without the
+// user switching anything. If every source fails, the error lists what was
+// tried and why, because "not initialised" is a lie when the key is simply
+// somewhere this session cannot see.
 func (s *Store) loadIdentity() (*age.X25519Identity, Backend, error) {
+	var tried []string
+
 	if raw := os.Getenv("SEC_IDENTITY"); raw != "" {
 		id, err := parseIdentity(raw)
-		if err != nil {
-			return nil, BackendEnv, fmt.Errorf("SEC_IDENTITY: %w", err)
+		if err == nil {
+			return id, BackendEnv, nil
 		}
-		return id, BackendEnv, nil
+		tried = append(tried, "SEC_IDENTITY: "+err.Error())
 	}
-	m, err := s.readMarker()
-	if err == nil && m.Backend == BackendKeyring {
-		raw, kerr := keyringGet(s.keyringAccount())
-		if kerr != nil {
-			hint := "moved machines? restore with `sec identity import <backup>`"
-			if headless, why := Headless(); headless {
-				hint = fmt.Sprintf("this is a headless session (%s) and the key lives in the desktop credential store.\n  Set SEC_IDENTITY from a backup, or move the vault to the file backend from a desktop session:\n    sec identity move --to file", why)
+
+	m, merr := s.readMarker()
+	wantsKeyring := merr == nil && m.Backend == BackendKeyring
+	if wantsKeyring {
+		raw, err := keyringGet(s.keyringAccount())
+		if err == nil {
+			id, perr := parseIdentity(raw)
+			if perr == nil {
+				return id, BackendKeyring, nil
 			}
-			return nil, BackendKeyring, fmt.Errorf("cannot read the identity from the keyring (%s): %w\n  %s", s.Home, kerr, hint)
+			tried = append(tried, "keyring: "+perr.Error())
+		} else {
+			tried = append(tried, "keyring: "+err.Error())
 		}
-		id, err := parseIdentity(raw)
-		return id, BackendKeyring, err
 	}
-	b, err := os.ReadFile(s.identityPath())
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return nil, BackendFile, fmt.Errorf("not initialised — run `sec init` (home: %s)", s.Home)
+
+	if b, err := os.ReadFile(s.identityPath()); err == nil {
+		id, perr := parseIdentity(string(b))
+		if perr == nil {
+			if wantsKeyring {
+				// The vault prefers the keyring but this session could not
+				// reach it. Working from the file is correct, not an error —
+				// say so once on stderr so it is never a silent downgrade.
+				fmt.Fprintf(os.Stderr, "sec: credential store unreachable here, using %s\n", s.identityPath())
+			}
+			return id, BackendFile, nil
 		}
-		return nil, BackendFile, err
+		tried = append(tried, s.identityPath()+": "+perr.Error())
+	} else if !errors.Is(err, os.ErrNotExist) {
+		tried = append(tried, s.identityPath()+": "+err.Error())
 	}
-	id, err := parseIdentity(string(b))
-	return id, BackendFile, err
+
+	if merr != nil && len(tried) == 0 {
+		return nil, BackendFile, fmt.Errorf("not initialised — run `sec init` (home: %s)", s.Home)
+	}
+
+	msg := "no usable identity for " + s.Home + ":"
+	for _, t := range tried {
+		msg += "\n  · " + t
+	}
+	if headless, why := Headless(); headless && wantsKeyring {
+		msg += fmt.Sprintf("\n\nThis is a headless session (%s) and the key lives in the desktop credential store.\n"+
+			"Give this session a copy once, and it keeps working:\n"+
+			"  on the desktop:  sec identity export --out key.txt --confirm\n"+
+			"  here:            sec identity adopt key.txt      # stores it as a file, keyring stays primary elsewhere\n"+
+			"  or per-process:  export SEC_IDENTITY=\"$(cat key.txt)\"", why)
+	}
+	return nil, BackendFile, errors.New(msg)
 }
 
 // IdentityInfo is what `sec identity` reports — never the key itself.
@@ -280,6 +320,38 @@ func (s *Store) ExportIdentity(path string) error {
 	return nil
 }
 
+// AdoptIdentity writes a key to this machine's file backend without changing
+// the vault's preferred backend. It is how a headless machine joins a vault
+// whose key normally lives in a desktop credential store: the desktop keeps
+// the keyring, this machine reads the file, and the marker still says keyring
+// so nothing regresses when the desktop runs next.
+func (s *Store) AdoptIdentity(path string) error {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	id, err := parseIdentity(string(b))
+	if err != nil {
+		return err
+	}
+	m, err := s.readMarker()
+	if err != nil {
+		m = &identityMarker{Backend: BackendFile}
+	}
+	if m.PublicKey != "" && m.PublicKey != id.Recipient().String() {
+		return fmt.Errorf("that key is for a different vault:\n  vault expects %s\n  file provides %s", m.PublicKey, id.Recipient())
+	}
+	body := fmt.Sprintf("# sec identity (adopted copy)\n# public key: %s\n%s\n", id.Recipient(), id)
+	if err := os.WriteFile(s.identityPath(), []byte(body), 0o600); err != nil {
+		return err
+	}
+	if err := os.Chmod(s.identityPath(), 0o400); err != nil {
+		return err
+	}
+	s.identity, s.backend = id, BackendFile
+	return nil
+}
+
 // ImportIdentity replaces the current identity from a backup file.
 func (s *Store) ImportIdentity(path string, to Backend) error {
 	b, err := os.ReadFile(path)
@@ -306,4 +378,11 @@ func keyringName() string {
 	default:
 		return "Secret Service"
 	}
+}
+
+// keyringDeleteForTest removes this vault's keyring entry. Exported to the
+// package's tests only; production code never deletes a key except through
+// MoveIdentity, which has already written the replacement.
+func keyringDeleteForTest(account string) error {
+	return keyring.Delete(keyringService, account)
 }

@@ -54,8 +54,16 @@ sec init
   `SEC_HEADLESS=0|1`. Every keyring call — probe, read, and the write's read-back — is bounded by
   a 3s timeout, so a locked keychain can never wedge the process.
 
-  `sec identity` prints which session it thinks it's in. If you SSH into a Mac whose vault is on
-  the keyring, the read fails fast and tells you to use `SEC_IDENTITY` or move to the file backend.
+  **Resolution is automatic and never needs a flag.** Reads try `SEC_IDENTITY`, then the keyring
+  (if the vault prefers it *and* this session can reach it), then `identity.txt`, and use the first
+  that answers — so one home directory works from the desktop that created it and from a cron job
+  or SSH session that can't reach the credential store. Falling back prints one line on stderr so
+  it's never a silent downgrade. `sec identity adopt key.txt` gives a machine its own file copy
+  without changing where the vault prefers to keep the key.
+
+  Two things are refused rather than guessed: `sec init` on a directory that already holds
+  encrypted secrets but no key (generating a fresh one would orphan them forever), and adopting a
+  key whose public key doesn't match the vault's.
   `sec identity` shows which; `sec identity move --to keyring|file` switches (verifies the new
   location reads back *before* removing the old copy); `sec identity export --out f --confirm`
   makes a backup for a password manager. Teammates: `sec recipients --add age1…`.

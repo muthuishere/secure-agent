@@ -81,10 +81,11 @@ Never quote a value, even a redacted-looking fragment.
 
 ## Identity (where the key lives)
 
-`sec identity` reports the backend (OS keyring, file, or `SEC_IDENTITY`), whether the session is
-headless, and the public key — never the key. If it errors saying the keyring can't be read in a
-headless session, do not retry or try to unlock anything: report it and give the owner the two
-options it names (`SEC_IDENTITY`, or `sec identity move --to file` from a desktop session). Moving, exporting or importing the identity is **owner-only**; if a machine has no
+Where the key lives is resolved automatically (`SEC_IDENTITY` → keyring → file); you never pass a
+backend flag. `sec identity` reports which one answered and the public key — never the key.
+If it errors with "no usable identity", the key has not reached this machine: report the commands
+it prints and stop. Do not retry, do not try to unlock a keychain, and never run
+`sec init` to "fix" it — on a synced vault that would orphan every secret. Moving, exporting or importing the identity is **owner-only**; if a machine has no
 identity, say so and give the owner the command, don't improvise.
 
 ## Sync is not sec's job

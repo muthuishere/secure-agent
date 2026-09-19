@@ -1,6 +1,9 @@
 package tmpl
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestNamesAndFill(t *testing.T) {
 	s := "-H 'Bearer {{ STRIPE_KEY }}' {{DB}} {{STRIPE_KEY}}"
@@ -13,5 +16,17 @@ func TestNamesAndFill(t *testing.T) {
 	}
 	if _, err := Fill("{{NOPE}}", nil); err == nil {
 		t.Fatal("unresolved must error")
+	}
+}
+
+// A vault entry that exists but is empty must stop a render, not silently
+// produce a document with a blank where a credential belongs.
+func TestFillRefusesEmptyValue(t *testing.T) {
+	_, err := Fill("secret: {{K}}\n", map[string]string{"K": ""})
+	if err == nil {
+		t.Fatal("empty value filled silently")
+	}
+	if !strings.Contains(err.Error(), "K") {
+		t.Errorf("error should name K: %v", err)
 	}
 }

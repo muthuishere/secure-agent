@@ -42,7 +42,7 @@ func NamesIn(parts ...string) []string {
 // Fill substitutes every placeholder from values. Unknown names are an error,
 // never left in place — a half-filled template is worse than a refusal.
 func Fill(s string, values map[string]string) (string, error) {
-	var missing []string
+	var missing, empty []string
 	out := re.ReplaceAllStringFunc(s, func(m string) string {
 		name := re.FindStringSubmatch(m)[1]
 		v, ok := values[name]
@@ -50,10 +50,20 @@ func Fill(s string, values map[string]string) (string, error) {
 			missing = append(missing, name)
 			return m
 		}
+		if v == "" {
+			empty = append(empty, name)
+			return m
+		}
 		return v
 	})
 	if len(missing) > 0 {
 		return "", fmt.Errorf("unresolved placeholders: %s", strings.Join(missing, ", "))
+	}
+	// An empty value is not a fill. Substituting it silently produces a document
+	// with a blank where a credential should be — which reads as "this step has
+	// no password" rather than "the vault never had one".
+	if len(empty) > 0 {
+		return "", fmt.Errorf("empty value(s) in the vault: %s — `sec set` them before rendering", strings.Join(empty, ", "))
 	}
 	return out, nil
 }

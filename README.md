@@ -8,7 +8,8 @@ what; `rotate` knows every place a value was put.
 sec init                                                   # age keypair → ~/.config/sec
 printf '%s' "$VALUE" | sec set STRIPE_KEY --source https://dashboard.stripe.com/apikeys
 sec exec -- curl -H "Authorization: Bearer {{STRIPE_KEY}}" https://api.stripe.com/v1/balance
-sec gen --save APP_DB_PW --env infra/vault/dev/.env.dev=DB_PASSWORD
+sec env list                                               # environment → file → key count
+sec gen --save APP_DB_PW --env production=DB_PASSWORD      # an environment NAME, not a guessed .env
 sec place APP_DB_PW --gh muthuishere/app:production --gcp my-project
 sec rotate APP_DB_PW --gen --hook hooks/postgres-rotate.sh  # → re-pushed to .env, GitHub, GCP
 sec where APP_DB_PW                                        # the compromise-day question
@@ -43,13 +44,27 @@ sec init
   `SEC_IDENTITY` env (CI/containers) > OS keyring (macOS Keychain / Windows Credential Manager /
   Linux Secret Service, via `go-keyring`) > `identity.txt` (0400).
 
-  | platform | default | why |
+  | situation | default | why |
   |---|---|---|
-  | macOS, Windows | keyring | local API, answers immediately, no prompt |
-  | Linux, BSD, containers, CI | **file** | a server has no Secret Service; a desktop one is DBus and can block on an unlock prompt that never comes in cron or an agent session |
+  | macOS / Windows desktop session | keyring | local API, answers immediately, no prompt |
+  | **anything headless** — SSH, container, CI, no `DISPLAY`/DBus | **file** (0400) | every credential store assumes a logged-in desktop; without one it prompts where nobody can answer, and a prompt is a hung agent |
+  | Linux desktop | file, opt in with `--backend keyring` | gnome-keyring/KWallet works, but it's DBus, and the same config in cron or CI would block |
 
-  Linux desktop users who want gnome-keyring/KWallet opt in: `sec init --backend keyring`
-  (or `sec identity move --to keyring`), which warns about the DBus caveat.
+  Headless is detected from `SSH_CONNECTION`/`SSH_TTY`, `/.dockerenv` + cgroups, CI env vars,
+  and (on unix) a missing `DISPLAY`/`WAYLAND_DISPLAY`/`DBUS_SESSION_BUS_ADDRESS`. Override with
+  `SEC_HEADLESS=0|1`. Every keyring call — probe, read, and the write's read-back — is bounded by
+  a 3s timeout, so a locked keychain can never wedge the process.
+
+  **Resolution is automatic and never needs a flag.** Reads try `SEC_IDENTITY`, then the keyring
+  (if the vault prefers it *and* this session can reach it), then `identity.txt`, and use the first
+  that answers — so one home directory works from the desktop that created it and from a cron job
+  or SSH session that can't reach the credential store. Falling back prints one line on stderr so
+  it's never a silent downgrade. `sec identity adopt key.txt` gives a machine its own file copy
+  without changing where the vault prefers to keep the key.
+
+  Two things are refused rather than guessed: `sec init` on a directory that already holds
+  encrypted secrets but no key (generating a fresh one would orphan them forever), and adopting a
+  key whose public key doesn't match the vault's.
   `sec identity` shows which; `sec identity move --to keyring|file` switches (verifies the new
   location reads back *before* removing the old copy); `sec identity export --out f --confirm`
   makes a backup for a password manager. Teammates: `sec recipients --add age1…`.

@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/muthuishere/secure-agent/internal/envfile"
@@ -57,20 +58,20 @@ func cmdGen(args []string) error {
 		}
 	}
 	for _, spec := range splitList(*env) {
-		file, v, ok := strings.Cut(spec, "=")
-		if !ok {
-			if *save == "" {
-				return fmt.Errorf("--env %s: need FILE=VAR when no --save name to default to", spec)
-			}
-			v = *save
+		file, v, how, err := resolveEnvSpec(spec, *save)
+		if err != nil {
+			return err
+		}
+		if v == "" {
+			return fmt.Errorf("--env %s: need TARGET=VAR when there is no --save name to default to", spec)
 		}
 		if err := envfile.Set(file, map[string]string{v: pw}); err != nil {
 			return err
 		}
 		if m != nil {
-			m.AddPlacement(store.Placement{Type: "file", Path: file, Var: v})
+			m.AddPlacement(store.Placement{Type: "file", Path: file, Var: v, Env: environmentOf(file)})
 		}
-		fmt.Printf("✓ %s written to %s (0600)\n", v, file)
+		fmt.Printf("✓ %s written to %s (0600)\n", v, describeTarget(file, how))
 	}
 	if m != nil {
 		if err := s.SaveMeta(m); err != nil {
@@ -86,28 +87,65 @@ func cmdGen(args []string) error {
 }
 
 func cmdEnv(args []string) error {
-	if len(args) < 2 {
-		return fmt.Errorf("usage: sec env write FILE NAME[=VAR]…  |  sec env ls FILE")
+	if len(args) == 0 {
+		return fmt.Errorf("usage: sec env list  |  sec env ls TARGET  |  sec env write TARGET NAME[=VAR]…\n" +
+			"  TARGET is a path (./.env.production) or an environment name (production),\n" +
+			"  resolved against the dotenv files actually present under the current directory")
 	}
 	switch args[0] {
-	case "ls":
-		keys, err := envfile.Keys(args[1])
+	case "list":
+		files, err := envfile.Discover(".", envDepth)
 		if err != nil {
 			return err
+		}
+		if len(files) == 0 {
+			fmt.Println("(no dotenv files found here)")
+			return nil
+		}
+		fmt.Printf("%-14s %-44s %s\n", "ENVIRONMENT", "FILE", "KEYS")
+		for _, f := range files {
+			keys, err := envfile.Keys(f.Path)
+			n := "?"
+			if err == nil {
+				n = fmt.Sprint(len(keys))
+			}
+			fmt.Printf("%-14s %-44s %s\n", f.Env, f.Path, n)
+		}
+		return nil
+
+	case "ls":
+		if len(args) < 2 {
+			return fmt.Errorf("usage: sec env ls TARGET   (or `sec env list` for every environment)")
+		}
+		path, _, how, err := resolveEnvSpec(args[1], "")
+		if err != nil {
+			return err
+		}
+		keys, err := envfile.Keys(path)
+		if err != nil {
+			return err
+		}
+		if how != "path" {
+			fmt.Fprintf(os.Stderr, "# %s\n", describeTarget(path, how))
 		}
 		for _, k := range keys {
 			fmt.Println(k)
 		}
 		return nil
+
 	case "write":
 		if len(args) < 3 {
-			return fmt.Errorf("usage: sec env write FILE NAME[=VAR]…")
+			return fmt.Errorf("usage: sec env write TARGET NAME[=VAR]…")
+		}
+		path, _, how, err := resolveEnvSpec(args[1], "")
+		if err != nil {
+			return err
 		}
 		s, err := open()
 		if err != nil {
 			return err
 		}
-		file := args[1]
+		env := environmentOf(path)
 		kv := map[string]string{}
 		var names []string
 		for _, spec := range args[2:] {
@@ -122,18 +160,31 @@ func cmdEnv(args []string) error {
 			kv[v] = string(val)
 			names = append(names, n)
 			if m, err := s.Meta(n); err == nil {
-				m.AddPlacement(store.Placement{Type: "file", Path: file, Var: v})
+				m.AddPlacement(store.Placement{Type: "file", Path: path, Var: v, Env: env})
 				s.SaveMeta(m)
 			}
 		}
-		if err := envfile.Set(file, kv); err != nil {
+		if err := envfile.Set(path, kv); err != nil {
 			return err
 		}
-		s.Audit("env.write", owner.Agent(), names, map[string]string{"file": file})
-		fmt.Printf("✓ wrote %d key(s) to %s (0600, placements recorded)\n", len(kv), file)
+		s.Audit("env.write", owner.Agent(), names, map[string]string{"file": path, "env": env})
+		fmt.Printf("✓ wrote %d key(s) to %s (0600, placements recorded)\n", len(kv), describeTarget(path, how))
 		return nil
 	}
-	return fmt.Errorf("unknown env subcommand %q", args[0])
+	return fmt.Errorf("unknown env subcommand %q (want list, ls, or write)", args[0])
+}
+
+// environmentOf labels a placement with the environment its file belongs to,
+// so `sec where` can answer "which environment is this key in".
+func environmentOf(path string) string {
+	if files, err := envfile.Discover(".", envDepth); err == nil {
+		for _, f := range files {
+			if f.Path == path {
+				return f.Env
+			}
+		}
+	}
+	return envfile.EnvOfPath(path)
 }
 
 func cmdImport(args []string) error {
@@ -146,13 +197,17 @@ func cmdImport(args []string) error {
 		return err
 	}
 	if len(rest) != 1 {
-		return fmt.Errorf("usage: sec import FILE.env [--tag t] [--only A,B] [--no-place]")
+		return fmt.Errorf("usage: sec import TARGET [--tag t] [--only A,B] [--no-place]\n  TARGET is a path or an environment name (production, dev, local)")
+	}
+	path, _, how, err := resolveEnvSpec(rest[0], "")
+	if err != nil {
+		return err
 	}
 	s, err := open()
 	if err != nil {
 		return err
 	}
-	vals, order, err := envfile.Parse(rest[0])
+	vals, order, err := envfile.Parse(path)
 	if err != nil {
 		return err
 	}
@@ -177,15 +232,15 @@ func cmdImport(args []string) error {
 			m.Tags = splitList(*tags)
 		}
 		if !*noPlace {
-			m.AddPlacement(store.Placement{Type: "file", Path: rest[0], Var: k})
+			m.AddPlacement(store.Placement{Type: "file", Path: path, Var: k, Env: environmentOf(path)})
 		}
 		if err := s.SaveMeta(m); err != nil {
 			return err
 		}
 		names = append(names, k)
 	}
-	s.Audit("import", owner.Agent(), names, map[string]string{"file": rest[0]})
-	fmt.Printf("✓ imported %d secret(s) from %s\n", len(names), rest[0])
+	s.Audit("import", owner.Agent(), names, map[string]string{"file": path, "env": environmentOf(path)})
+	fmt.Printf("✓ imported %d secret(s) from %s\n", len(names), describeTarget(path, how))
 	return nil
 }
 

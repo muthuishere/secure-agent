@@ -20,6 +20,12 @@ $S exec -- echo '{{STRIPE_KEY}}' 2>/dev/null && { echo "echo must be refused"; e
 $S get STRIPE_KEY --print </dev/null 2>/dev/null && { echo "get must be owner-only"; exit 1; }
 $S gen --save DB_PW --env .env=DB_PASSWORD >/dev/null
 printf '{"pw":"{{DB_PW}}"}' > c.tpl; $S render c.tpl --out c.json >/dev/null
+# seal is the return leg: the rendered file must come back to the template it
+# came from, and --check must refuse a file that still holds a live value.
+$S seal c.json --check >/dev/null 2>&1 && { echo "seal --check must fail on a filled file"; exit 1; }
+$S seal c.json --out c.sealed >/dev/null
+cmp -s c.tpl c.sealed || { echo "render/seal round trip is not exact"; exit 1; }
+$S seal c.tpl --check >/dev/null || { echo "seal --check must pass on a template"; exit 1; }
 $S rotate DB_PW --gen >/dev/null
 $S rotate DB_PW --undo >/dev/null
 $S rotate DB_PW --purge >/dev/null

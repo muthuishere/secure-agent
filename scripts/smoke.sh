@@ -2,6 +2,9 @@
 # Exercises every verb against a throwaway SEC_HOME. Fails on any leak.
 set -eu
 : "${SEC_HOME:?}"
+# The agent path is what this script checks, so never inherit owner rights
+# from whoever invoked it (a `SEC_OWNER=1 task ci` would silently pass).
+unset SEC_OWNER
 S="$(cd "$(dirname "$0")/.." && pwd)/bin/sec"
 W=$(mktemp -d); cd "$W"
 $S init --backend file >/dev/null
@@ -20,6 +23,7 @@ $S where DB_PW >/dev/null
 $S cert ca >/dev/null && $S cert issue --cn app.local --san localhost --out certs >/dev/null
 $S ls --json | grep -q '"name":"DB_PW"'
 $S audit --since 1h | grep -q rotate
-$S identity export --out id.bak --confirm >/dev/null
+$S identity export --out id.bak --confirm >/dev/null 2>&1 && { echo "identity export must be owner-only"; exit 1; }
+SEC_OWNER=1 $S identity export --out id.bak --confirm >/dev/null
 grep -q AGE-SECRET-KEY id.bak
 echo "smoke OK"

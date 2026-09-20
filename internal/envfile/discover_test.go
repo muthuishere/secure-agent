@@ -3,6 +3,7 @@ package envfile
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -69,5 +70,37 @@ func TestResolveAmbiguous(t *testing.T) {
 	writeEnvFile(t, root, "web/.env.production")
 	if _, _, err := ResolveTarget(root, "production", 4); err == nil {
 		t.Fatal("two files for one environment must be an error, not a guess")
+	}
+}
+
+// A path that is not there must be re-searched, not reported as missing:
+// dotenv files move between layouts, and the answer is on disk right now.
+func TestStalePathFallsBackToSearch(t *testing.T) {
+	root := t.TempDir()
+	writeEnvFile(t, root, "infra/vault/production/.env.production")
+
+	// Reading through a path that no longer exists finds the real file.
+	p, how, err := ResolveExisting(root, ".env.production", 4)
+	if err != nil {
+		t.Fatalf("stale path should have been searched: %v", err)
+	}
+	want := filepath.Join("infra", "vault", "production", ".env.production")
+	if p != want {
+		t.Fatalf("got %q want %q", p, want)
+	}
+	if !strings.Contains(how, "found by searching") {
+		t.Fatalf("how = %q, must say it searched", how)
+	}
+
+	// Writing may still create a new path.
+	if p, _, err := ResolveTarget(root, "./new/.env.staging", 4); err != nil || p != "./new/.env.staging" {
+		t.Fatalf("write target: %q %v", p, err)
+	}
+
+	// A path with no environment in its name, and nothing to match, reports
+	// what does exist rather than a bare "not found".
+	_, _, err = ResolveExisting(root, "./nope/config.env", 4)
+	if err == nil || !strings.Contains(err.Error(), "Found:") {
+		t.Fatalf("err = %v, must list what exists", err)
 	}
 }

@@ -121,15 +121,31 @@ func looksLikePath(target string) bool {
 
 // ResolveTarget turns what the caller typed into a concrete file.
 //
-// A path is used as given. A bare word is an environment name, looked up
-// among the dotenv files actually present — because "production" lives in
-// .env.production here and infra/vault/production/.env.production there, and
-// assuming `.env` writes the secret into the wrong environment.
+// A bare word is an environment name, looked up among the dotenv files
+// actually present — because "production" lives in .env.production here and
+// infra/vault/production/.env.production there, and assuming `.env` writes the
+// secret into the wrong environment.
+//
+// A path is used as given when the caller may create it. When the file must
+// already exist (reading, importing) and it does not, this does not fail
+// straight away: it re-scans and offers what is actually there. Files move
+// between repos and layouts, so a stale path is a search, not an error.
 //
 // It reports how it resolved so the caller can say which file it picked; an
 // environment that matches several files is an error listing them, never a
 // guess.
 func ResolveTarget(root, target string, maxDepth int) (path string, how string, err error) {
+	return resolveTarget(root, target, maxDepth, false)
+}
+
+// ResolveExisting is ResolveTarget for callers that read the file: a path that
+// is not there falls back to searching, rather than reporting "no such file"
+// for a dotenv that simply lives somewhere else now.
+func ResolveExisting(root, target string, maxDepth int) (path string, how string, err error) {
+	return resolveTarget(root, target, maxDepth, true)
+}
+
+func resolveTarget(root, target string, maxDepth int, mustExist bool) (path string, how string, err error) {
 	if target == "" {
 		return "", "", fmt.Errorf("no environment or file given")
 	}
@@ -137,7 +153,17 @@ func ResolveTarget(root, target string, maxDepth int) (path string, how string, 
 		if IsTemplate(target) {
 			return "", "", fmt.Errorf("%s is a template file — it documents variable names and is usually committed; write to the real env file instead", target)
 		}
-		return target, "path", nil
+		if !mustExist || Exists(target) {
+			return target, "path", nil
+		}
+		// The path is stale. Search by the environment its name implies
+		// before giving up, so a moved or renamed file still resolves.
+		if env := EnvOfPath(target); env != "" {
+			if p, h, ferr := resolveTarget(root, env, maxDepth, mustExist); ferr == nil {
+				return p, h + ", found by searching (" + target + " is not there)", nil
+			}
+		}
+		return "", "", fmt.Errorf("%s does not exist%s", target, foundHint(root, maxDepth))
 	}
 	files, derr := Discover(root, maxDepth)
 	if derr != nil {
@@ -153,18 +179,11 @@ func ResolveTarget(root, target string, maxDepth int) (path string, how string, 
 	case 1:
 		return hits[0].Path, "environment " + hits[0].Env, nil
 	case 0:
-		known := map[string]bool{}
-		var names []string
-		for _, f := range files {
-			if !known[f.Env] {
-				known[f.Env] = true
-				names = append(names, fmt.Sprintf("%s (%s)", f.Env, f.Path))
-			}
-		}
-		if len(names) == 0 {
+		if hint := foundHint(root, maxDepth); hint == "" {
 			return "", "", fmt.Errorf("no dotenv file for environment %q, and none found under %s.\n  Give an explicit path (./.env.%s) if you want it created", target, root, target)
+		} else {
+			return "", "", fmt.Errorf("no dotenv file for environment %q%s", target, hint)
 		}
-		return "", "", fmt.Errorf("no dotenv file for environment %q. Found: %s", target, strings.Join(names, ", "))
 	default:
 		var paths []string
 		for _, h := range hits {
@@ -172,6 +191,24 @@ func ResolveTarget(root, target string, maxDepth int) (path string, how string, 
 		}
 		return "", "", fmt.Errorf("environment %q matches %d files: %s\n  name the one you mean", target, len(hits), strings.Join(paths, ", "))
 	}
+}
+
+// foundHint lists the environments that do exist, re-scanned at the moment of
+// the error rather than taken from anything remembered earlier.
+func foundHint(root string, maxDepth int) string {
+	files, err := Discover(root, maxDepth)
+	if err != nil || len(files) == 0 {
+		return ""
+	}
+	seen := map[string]bool{}
+	var names []string
+	for _, f := range files {
+		if !seen[f.Env] {
+			seen[f.Env] = true
+			names = append(names, fmt.Sprintf("%s (%s)", f.Env, f.Path))
+		}
+	}
+	return ". Found: " + strings.Join(names, ", ")
 }
 
 // EnvOfPath names the environment a dotenv path belongs to, from its filename

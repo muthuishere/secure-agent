@@ -117,7 +117,7 @@ func cmdEnv(args []string) error {
 		if len(args) < 2 {
 			return fmt.Errorf("usage: sec env ls TARGET   (or `sec env list` for every environment)")
 		}
-		path, _, how, err := resolveEnvSpec(args[1], "")
+		path, _, how, err := resolveEnvSpecExisting(args[1], "")
 		if err != nil {
 			return err
 		}
@@ -199,7 +199,7 @@ func cmdImport(args []string) error {
 	if len(rest) != 1 {
 		return fmt.Errorf("usage: sec import TARGET [--tag t] [--only A,B] [--no-place]\n  TARGET is a path or an environment name (production, dev, local)")
 	}
-	path, _, how, err := resolveEnvSpec(rest[0], "")
+	path, _, how, err := resolveEnvSpecExisting(rest[0], "")
 	if err != nil {
 		return err
 	}

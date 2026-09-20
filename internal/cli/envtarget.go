@@ -18,6 +18,17 @@ const envDepth = 4
 // production credentials into whatever file happened to be in the way, so an
 // environment that does not exist is an error, not a fallback.
 func resolveEnvSpec(spec, defaultVar string) (path, variable, how string, err error) {
+	return resolveSpec(spec, defaultVar, false)
+}
+
+// resolveEnvSpecExisting is for commands that read the file. A path that is
+// not there is re-searched instead of failing, because an environment question
+// should always be answered from a fresh scan of what is on disk.
+func resolveEnvSpecExisting(spec, defaultVar string) (path, variable, how string, err error) {
+	return resolveSpec(spec, defaultVar, true)
+}
+
+func resolveSpec(spec, defaultVar string, mustExist bool) (path, variable, how string, err error) {
 	target, v, hasVar := strings.Cut(spec, "=")
 	if !hasVar {
 		v = defaultVar
@@ -25,7 +36,11 @@ func resolveEnvSpec(spec, defaultVar string) (path, variable, how string, err er
 	if v == "" && defaultVar == "" && hasVar {
 		return "", "", "", fmt.Errorf("%s: empty variable name", spec)
 	}
-	path, how, err = envfile.ResolveTarget(".", target, envDepth)
+	if mustExist {
+		path, how, err = envfile.ResolveExisting(".", target, envDepth)
+	} else {
+		path, how, err = envfile.ResolveTarget(".", target, envDepth)
+	}
 	if err != nil {
 		return "", "", "", err
 	}

@@ -75,6 +75,12 @@ Anywhere a file is wanted you may give an **environment name** instead of a path
 resolves it against the files actually present (`sec env list` shows them). Writing a production
 credential into whatever `.env` happened to be nearby is the failure this prevents, so:
 
+- **Always re-scan, never assume.** Any question about the environment starts with
+  `sec env list` — it re-walks the tree on every call. Don't reuse a path from earlier in the
+  conversation, from a README, or from another repo: files get added, renamed and moved, and a
+  stale path is how a value lands in the wrong environment. Pass the environment *name* and let
+  `sec` find the file; if you do pass a path that has gone, `sec` searches for it rather than
+  failing, and says so.
 - **Ask which environment** when the task says "the API key" without saying which. Don't default.
 - An environment that doesn't exist is an **error listing the ones that do** — don't retry with `.env`.
 - Template files (`.env.example`, `.env.sample`, `.env.template`, `.env.dist`) are **refused** as

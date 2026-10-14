@@ -46,5 +46,11 @@ tasks:
     desc: Install sec to ~/.local/bin and link the agent skill + harness deny rules
     cmds:
       - task: build
-      - mkdir -p ~/.local/bin && cp bin/sec ~/.local/bin/sec
+      # install(1) unlinks the destination first. A plain `cp` overwrites the
+      # existing file IN PLACE, which on macOS leaves the old inode's cached code
+      # signature pointing at bytes that no longer exist — the kernel then
+      # SIGKILLs the new binary on exec (137) with no message. rm-then-copy.
+      - mkdir -p ~/.local/bin
+      - rm -f ~/.local/bin/sec
+      - install -m 0755 bin/sec ~/.local/bin/sec
       - ~/.local/bin/sec skill install --from {{.ROOT_DIR}}/skills/sec

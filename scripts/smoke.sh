@@ -36,4 +36,28 @@ $S audit --since 1h | grep -q rotate
 $S identity export --out id.bak --confirm >/dev/null 2>&1 && { echo "identity export must be owner-only"; exit 1; }
 SEC_OWNER=1 $S identity export --out id.bak --confirm >/dev/null
 grep -q AGE-SECRET-KEY id.bak
+# agent: refuses without a terminal (the filter only makes sense on a tty) and
+# hands the agent's exit code back through the pty. The rewrite itself is
+# proven by the pty harness in internal/agentpty (go test).
+$S agent sh </dev/null 2>&1 | grep -q "interactive terminal" || { echo "agent must refuse a non-tty"; exit 1; }
+code=0
+case "$(uname)" in
+  Darwin) script -q /dev/null $S agent sh -c 'exit 7' >/dev/null 2>&1 || code=$? ;;
+  *)      script -qc "$S agent sh -c 'exit 7'" /dev/null >/dev/null 2>&1 || code=$? ;;
+esac
+[ "$code" -eq 7 ] || { echo "agent exit code not passed through (got $code)"; exit 1; }
+# sh: the agent's shell refuses to print a secret file, and redacts what else
+# comes back — dotenv values sec never stored included.
+printf 'DB_URL=postgres://u:dotenv-only-pass@h/db\n' > .env
+ln -sf "$S" ./sec-sh-sh
+./sec-sh-sh -c 'cat .env' >/dev/null 2>&1 && { echo "sh must refuse cat .env"; exit 1; }
+out=$(./sec-sh-sh -c '. ./.env; echo "$DB_URL"; printf %s {{STRIPE_KEY}}')
+case "$out" in *dotenv-only-pass*|*hunter2*) echo "LEAK (sh): $out"; exit 1;; esac
+code=0; ./sec-sh-sh -c 'exit 5' || code=$?; [ "$code" -eq 5 ] || { echo "sh exit code lost ($code)"; exit 1; }
+# hook: an agent's own Read of a secret file is denied with the sealed form;
+# an ordinary file is allowed; the deny carries no value.
+hook() { printf '{"tool_name":"%s","tool_input":{"file_path":"%s"},"cwd":"%s"}' "$1" "$2" "$PWD" | $S hook --client claude; }
+out=$(hook Read .env); case "$out" in *'"deny"'*'DB_URL={{DB_URL}}'*) ;; *) echo "hook must deny Read .env with sealed keys: $out"; exit 1;; esac
+case "$out" in *dotenv-only-pass*) echo "LEAK (hook): $out"; exit 1;; esac
+echo hello > notes.txt; [ -z "$(hook Read notes.txt)" ] || { echo "hook must allow ordinary files"; exit 1; }
 echo "smoke OK"

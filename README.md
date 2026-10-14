@@ -8,22 +8,59 @@ what; `rotate` knows every place a value was put.
 sec init                                                   # age keypair → ~/.config/sec
 printf '%s' "$VALUE" | sec set STRIPE_KEY --source https://dashboard.stripe.com/apikeys
 sec exec -- curl -H "Authorization: Bearer {{STRIPE_KEY}}" https://api.stripe.com/v1/balance
+sec agent claude -- --dangerously-skip-permissions         # run an agent with the keyboard filtered
 sec env list                                               # environment → file → key count
 sec gen --save APP_DB_PW --env production=DB_PASSWORD      # an environment NAME, not a guessed .env
 sec place APP_DB_PW --gh muthuishere/app:production --gcp my-project
 sec rotate APP_DB_PW --gen --hook hooks/postgres-rotate.sh  # → re-pushed to .env, GitHub, GCP
 sec where APP_DB_PW                                        # the compromise-day question
+
+sec set TLS --from ./certs                                 # a whole file or folder (modes kept)
+sec push DB_PW,API_KEY ./app/.env                          # put it where the program reads it…
+sec push TLS ssh://hetzner/etc/myapp/certs                 # …a server, a volume, docker://ctr/path
+sec push DB_PW ssh://hetzner                               # another sec, live and kept in sync
+sec export --only DB_PW --for age1… --out x.sec            # another sec without ssh → sec import x.sec
+sec keys                                                   # what .env.example needs that the vault lacks
+sec logs DB_PW --since 7d                                  # what happened
+sec ok                                                     # check everything, re-push stale copies
 ```
+
+More worked examples — env vars, `.env`, Docker volumes, servers, another sec, containers, templates:
+[docs/examples.md](docs/examples.md). Full reference: the [docs page](site/docs.html).
 
 ## Why
 
 | tool | secrets out of the model | works for argv/config files, not just env | placement ledger → one-verb rotate | no daemon / SaaS |
 |---|---|---|---|---|
-| Doppler / 1Password `op run` | ✅ | env only | ✗ | SaaS |
+| Doppler `doppler run` | ✅ | env only | ✗ | SaaS |
 | secretctl / agent-secrets | ✅ | env only | ✗ | MCP server / daemon |
 | OneCLI / agentsecrets | ✅ | HTTP only (proxy) | rotate in vault only | proxy + dashboard |
 | sops + age | ✅ | ✗ | ✗ | ✅ |
 | **sec** | ✅ + output redaction | ✅ `exec` / `render` | ✅ | ✅ single binary |
+
+## `sec agent` — the hook, not a convention
+
+Everything above is a thing the agent has to *remember*. `sec agent` removes the remembering: it
+runs the agent inside a pty `sec` owns, so the owner's keyboard passes through `sec` first.
+
+- **Pasted** → the paste is rewritten to `{{NAME}}` and the value is sealed into the vault as it
+  is captured.
+- **Typed by hand** → caught at Enter, *before* the line is submitted. The box is rewritten; the
+  raw text is never sent.
+- **Esc, arrows, focus, mouse, terminal capability replies** are classified, not guessed. A state
+  the classifier does not recognise **fails closed**: Ctrl-U, a notice, nothing submitted. So an
+  unhandled escape sequence withholds the line rather than leaking it.
+- The filter is a real sequence classifier (`internal/agentpty`) with a headless pty harness as its
+  test, because the interesting inputs — kitty-key Shift+Enter, bracketed paste split across
+  reads, terminal version replies arriving mid-paste — cannot be produced by a normal test pipe.
+
+```bash
+sec agent claude            # or devin, codex, opencode — whatever takes over the tty
+sec agent claude -- --resume   # agent args pass through untouched
+```
+
+`SEC_AGENT_WRAPPED` is set in the agent's environment, so the skill knows its input was filtered
+and can `sec ls` for a name whose value it was never shown.
 
 ## Install
 
@@ -73,6 +110,10 @@ sec init
   from asking the keyring — that exposure is identical to a 0600 file.
 - **Owner vs agent**: a TTY on stdin or `SEC_OWNER=1` is the owner. `get --print`, `export`,
   `--allow-output-only` need it. Agent harnesses run with a piped stdin, so they never have it.
+- **`sec agent` needs a real terminal.** It owns the pty, so with no tty there is no keyboard to
+  filter and it refuses rather than pretending. That also means the interactive check is the one
+  thing a CI run cannot cover — the rewrite is proven instead by the headless pty harness in
+  `internal/agentpty` (`go test ./internal/agentpty`).
 - **Redaction**: `exec`/`run` scrub each value plus its base64 (with/without trailing newline), hex,
   url-encoded and JSON-escaped forms from stdout/stderr. Matching is newline-tolerant — the stream is
   also searched with `\r`/`\n` removed, because ordinary tools wrap long output (`xxd -p` at 60
@@ -91,5 +132,5 @@ audit line for every use make the silly attempt visible, not impossible.
 
 ## Layout
 
-`cmd/sec` · `internal/{store,tmpl,redact,execx,gen,envfile,cert,place,owner,cli}` · `skills/sec/SKILL.md` ·
-`hooks/` (rotation hooks: postgres, aws-iam) · `scripts/smoke.sh`.
+`cmd/sec` · `internal/{store,tmpl,redact,execx,gen,envfile,cert,place,owner,cli,detect,agentpty}` ·
+`skills/sec/SKILL.md` · `hooks/` (rotation hooks: postgres, aws-iam) · `scripts/smoke.sh`.

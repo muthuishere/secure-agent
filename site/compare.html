@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>sec vs Doppler, 1Password, Infisical, sops+age, Vault — an honest comparison</title>
-<meta name="description" content="Where sec fits among 2026's secret managers: what op run and doppler run genuinely do better, what only a placement ledger gives you, and which tool to pick for which job.">
+<title>sec vs Doppler, Infisical, sops+age, Vault, dotenvx — an honest comparison</title>
+<meta name="description" content="Where sec fits among 2026's secret managers: what Doppler, Infisical, Vault and others genuinely do better, what only a placement ledger gives you, and which tool to pick for which job.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
@@ -26,7 +26,7 @@
 
 <header class="hero">
   <div class="wrap">
-    <div class="kicker">the landscape, as of September 2026</div>
+    <div class="kicker">the landscape, as of October 2026</div>
     <h1>Most of these are better than sec<span class="ghost"> — at something else.</span></h1>
     <p class="lede">Secret management split into three jobs that people keep confusing: <b>storing</b> a
     secret for a team, <b>injecting</b> it into a process, and <b>tracking every copy</b> so you can
@@ -37,7 +37,7 @@
 <section style="padding-top:20px">
   <div class="wrap">
     <div class="sec-kicker">the matrix</div>
-    <h2 class="sec">Five axes that matter once an agent is in the loop.</h2>
+    <h2 class="sec">Seven axes that matter once an agent is in the loop.</h2>
     <div class="tablewrap">
       <table>
         <thead>
@@ -47,47 +47,58 @@
             <th>fills argv &amp; config files, not just env</th>
             <th>scrubs the value out of output</th>
             <th>placement ledger → one-verb rotate</th>
+            <th>push files/folders to ssh hosts &amp; containers</th>
+            <th>audit log</th>
             <th>no daemon / SaaS</th>
           </tr>
         </thead>
         <tbody>
           <tr>
             <td>Doppler <code>doppler run</code></td>
-            <td class="yes">yes</td><td class="no">env only</td><td class="no">no</td><td class="no">no</td><td class="no">hosted SaaS</td>
-          </tr>
-          <tr>
-            <td>1Password <code>op run</code> + Unified Access</td>
-            <td class="yes">yes</td><td class="part">env, plus SDK reads</td><td class="part">masks known refs in output</td><td class="no">no</td><td class="no">account + SDK</td>
+            <td class="yes">yes</td><td class="no">env only</td><td class="no">no</td><td class="part">syncs to many clouds†</td><td class="no">no</td><td class="yes">yes</td><td class="no">hosted SaaS</td>
           </tr>
           <tr>
             <td>Infisical <code>infisical run</code></td>
-            <td class="yes">yes</td><td class="no">env only</td><td class="no">no</td><td class="no">no</td><td class="part">self-hostable server</td>
+            <td class="yes">yes</td><td class="no">env only</td><td class="no">no</td><td class="part">rotation + syncs†</td><td class="part">agent†</td><td class="yes">yes</td><td class="part">self-hostable server</td>
           </tr>
           <tr>
             <td>HashiCorp Vault</td>
-            <td class="yes">yes</td><td class="part">via agent templating</td><td class="no">no</td><td class="part">dynamic, short-lived creds instead</td><td class="no">cluster</td>
+            <td class="yes">yes</td><td class="part">via agent templating</td><td class="no">no</td><td class="part">dynamic, short-lived creds instead</td><td class="part">agent†</td><td class="yes">yes</td><td class="no">cluster</td>
           </tr>
           <tr>
             <td>sops + age</td>
-            <td class="yes">yes</td><td class="part">files, by decrypting them</td><td class="no">no</td><td class="no">no</td><td class="yes">yes</td>
+            <td class="yes">yes</td><td class="part">files, by decrypting them</td><td class="no">no</td><td class="no">no</td><td class="no">no</td><td class="part">git history</td><td class="yes">yes</td>
+          </tr>
+          <tr>
+            <td>dotenvx</td>
+            <td class="yes">yes</td><td class="part">encrypted .env</td><td class="no">no</td><td class="no">no</td><td class="no">no</td><td class="no">no</td><td class="yes">yes</td>
+          </tr>
+          <tr>
+            <td>Teller</td>
+            <td class="part">yes</td><td class="no">env</td><td class="part"><code>teller redact</code>†</td><td class="no">no</td><td class="no">no</td><td class="no">no</td><td class="yes">reads providers</td>
+          </tr>
+          <tr>
+            <td>envchain</td>
+            <td class="yes">yes</td><td class="no">env only</td><td class="no">no</td><td class="no">no</td><td class="no">no</td><td class="no">no</td><td class="yes">yes</td>
           </tr>
           <tr>
             <td>AWS Secrets Manager (agent mode)</td>
-            <td class="yes">yes, via a PreToolUse deny hook</td><td class="part">runtime refs</td><td class="no">no</td><td class="no">AWS-scoped</td><td class="no">cloud</td>
+            <td class="yes">yes, via a PreToolUse deny hook</td><td class="part">runtime refs</td><td class="no">no</td><td class="no">AWS-scoped</td><td class="no">no</td><td class="yes">yes</td><td class="no">cloud</td>
           </tr>
           <tr>
-            <td>MCP / proxy brokers (agentsecrets, OneCLI…)</td>
-            <td class="yes">yes</td><td class="no">HTTP calls only</td><td class="part">at the proxy</td><td class="part">in the vault only</td><td class="no">proxy + dashboard</td>
+            <td>MCP / proxy brokers (VaultBridge, secretctl, agentsecrets…)</td>
+            <td class="yes">yes</td><td class="no">HTTP calls or env only</td><td class="part">at the proxy</td><td class="no">no</td><td class="no">no</td><td class="part">varies</td><td class="part">varies</td>
           </tr>
           <tr class="us">
             <td>sec</td>
-            <td class="yes">yes, harness-enforced</td><td class="yes"><code>exec</code> / <code>render</code></td><td class="yes">plus base64, hex, url, JSON forms</td><td class="yes">yes</td><td class="yes">single binary</td>
+            <td class="yes">yes, harness-enforced</td><td class="yes"><code>exec</code> / <code>render</code></td><td class="yes">plus base64, hex, url, JSON forms</td><td class="yes">yes — .env, files, GitHub, GCP, ssh, containers</td><td class="yes"><code>push</code>, atomic, remembered</td><td class="part">local only</td><td class="yes">single binary</td>
           </tr>
         </tbody>
       </table>
     </div>
-    <p class="cap">Verified against vendor docs and 2026 comparisons in September 2026 — see sources at
-    the bottom. If a cell here is wrong, that's a bug: <a href="https://github.com/muthuishere/secure-agent/issues">open an issue</a>.</p>
+    <p class="cap">Checked against vendor docs and 2026 comparisons, September–October 2026 — see sources at
+    the bottom. Cells marked † come from the products' docs as we understand them and were not re-tested
+    for this revision. If a cell here is wrong, that's a bug: <a href="https://github.com/muthuishere/secure-agent/issues">open an issue</a>.</p>
   </div>
 </section>
 
@@ -120,8 +131,59 @@
 
 <section>
   <div class="wrap">
+    <div class="sec-kicker">one line each</div>
+    <h2 class="sec">What each one does better than sec.</h2>
+    <div class="verbs">
+      <div class="verb"><b>Doppler</b><span>A large library of sync integrations and a polished UI. <em>Hosted only.</em></span></div>
+      <div class="verb"><b>Infisical</b><span>Dynamic secrets and database credential rotation built in; self-hostable.</span></div>
+      <div class="verb"><b>Vault</b><span>Short-lived dynamic credentials and real policy-based access control.</span></div>
+      <div class="verb"><b>sops + age</b><span>The encrypted file lives in git, so changes are reviewed as diffs.</span></div>
+      <div class="verb"><b>dotenvx</b><span>An encrypted <code>.env</code> that works in any runtime with no vault to set up.</span></div>
+      <div class="verb"><b>Teller</b><span>One config reads from many cloud providers at once.</span></div>
+      <div class="verb"><b>envchain</b><span>About as small as keychain-to-env gets.</span></div>
+      <div class="verb"><b>MCP brokers</b><span>Reach any agent that speaks MCP, not only ones with a hook.</span></div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <div class="sec-kicker">not built yet</div>
+    <h2 class="sec">Where sec is behind, plainly.</h2>
+    <div class="grid3" style="grid-template-columns:1fr 1fr">
+      <div class="item">
+        <div class="n">01</div>
+        <h3>No MCP server</h3>
+        <p>sec reaches agents through a harness hook, <code>sec agent</code> and <code>sec sh</code>. An agent
+        that only speaks MCP gets nothing from it yet.</p>
+      </div>
+      <div class="item">
+        <div class="n">02</div>
+        <h3>Few cloud targets</h3>
+        <p>Placements cover <code>.env</code> files, rendered files, paths, GitHub Actions, GCP Secret Manager,
+        ssh hosts and containers. No AWS Secrets Manager, Vercel, Fly, Kubernetes Secrets or Azure Key Vault
+        — Doppler's list is far longer.</p>
+      </div>
+      <div class="item">
+        <div class="n">03</div>
+        <h3>No short-lived credentials</h3>
+        <p>Every secret is static until you rotate it. Vault and Infisical can mint one that expires on its
+        own, which beats hiding a long-lived one well.</p>
+      </div>
+      <div class="item">
+        <div class="n">04</div>
+        <h3>The audit log is local</h3>
+        <p><code>sec logs</code> is one machine's history. There is no shared, team-wide log — for that, use a
+        team tool (or vsync's bucket log for repo-scoped secrets).</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
     <div class="sec-kicker">the two real differences</div>
-    <h2 class="sec">Injection isn't the hard part any more. These two still are.</h2>
+    <h2 class="sec">Injection isn't the hard part any more. These still are.</h2>
     <div class="grid3" style="grid-template-columns:1fr 1fr">
       <div class="item">
         <div class="n">01</div>
@@ -138,11 +200,13 @@
         <p>Storing a secret is solved. Knowing <b>where all its copies are</b> is not. Every sec write
         records a placement, so <code>rotate</code> replays them instead of relying on your memory —
         and prints what it cannot do itself, rather than pretending it's done. Nothing else on this
-        list keeps an outbound copy ledger on the client.</p>
+        list keeps an outbound copy ledger on the client. Since October 2026 the ledger reaches past the
+        laptop: <code>sec push</code> writes files and whole folders into mounted volumes, ssh hosts and
+        containers, and <code>sec ok</code> re-pushes any copy left on an old version.</p>
       </div>
     </div>
     <div class="note">
-      <b>Where the industry agrees:</b> 2026's guidance from AWS, Auth0 and 1Password converged on one
+      <b>Where the industry agrees:</b> 2026's guidance from AWS and Auth0 converged on one
       rule — if you don't want an agent to leak a credential, <b>don't give the credential to the
       agent</b>; give it a broker and block the read path at the harness. sec implements exactly that
       rule, with the block as a <code>permissions.deny</code> entry rather than a cloud-specific hook.
@@ -161,7 +225,8 @@
       <div class="verb"><b>enterprise</b><span>Vault — for dynamic credentials and encryption-as-a-service, not for storing static ones.</span></div>
       <div class="verb"><b>git-ops config</b><span>sops + age. It's the right shape for encrypted files in a repo, and sec doesn't try to replace it.</span></div>
       <div class="verb"><b>AWS-only</b><span>Secrets Manager with the agent deny hook. One cloud, one story, no extra tool.</span></div>
-      <div class="verb"><b>you + your agents</b><span><em>sec.</em> Output redaction, argv and config files, a copy ledger, no service to run.</span></div>
+      <div class="verb"><b>you + your agents</b><span><em>sec.</em> Output redaction, argv and config files, a copy ledger that reaches servers and containers, no service to run.</span></div>
+      <div class="verb"><b>repo + env, small team</b><span>vsync for the per-repo, per-environment vault; sec on top for agents and placements.</span></div>
     </div>
   </div>
 </section>
@@ -174,6 +239,10 @@
       <li><a href="https://auth0.com/blog/want-ai-agents-that-don-t-spill-secrets-don-t-give-them-secrets/">Auth0 — Want AI agents that don't spill secrets? Don't give them secrets</a></li>
       <li><a href="https://infisical.com/infisical-vs-doppler">Infisical vs Doppler</a> · <a href="https://www.bytebase.com/blog/best-secrets-manager-for-database-credentials/">Bytebase — Vault vs Infisical vs Doppler (2026)</a></li>
       <li><a href="https://blog.gitguardian.com/top-secrets-management-tools/">GitGuardian — Top secrets management tools, 2026</a></li>
+      <li><a href="https://www.doppler.com/blog/infisical-doppler-secrets-management-comparison-2025">Doppler — Infisical vs Doppler (2025)</a> · <a href="https://infisical.com/blog/doppler-alternatives">Infisical — Doppler alternatives</a></li>
+      <li><a href="https://github.com/getsops/sops">sops</a> · <a href="https://github.com/dotenvx/dotenvx">dotenvx</a> · <a href="https://github.com/tellerops/teller">Teller</a> · <a href="https://github.com/sorah/envchain">envchain</a></li>
+      <li><a href="https://glama.ai/mcp/servers/ic9n4n1yar">VaultBridge (MCP)</a> · <a href="https://www.mdskills.ai/ko/skills/secretctl">secretctl</a></li>
+      <li><a href="https://www.kunalganglani.com/blog/redact-secrets-ai-cli">Ganglani — redaction alone is not enough</a></li>
       <li><a href="https://eshlox.net/why-infisical-over-vault-doppler-sops">Why Infisical over Vault, Doppler and SOPS</a> (on what sops+age does not do)</li>
     </ul>
   </div>

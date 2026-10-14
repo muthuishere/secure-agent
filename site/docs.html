@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>sec — docs &amp; command reference</title>
-<meta name="description" content="Install, model, and the full command reference for sec: exec, run, render, gen, place, rotate, where, audit, identity, cert.">
+<meta name="description" content="Install, model, and the full command reference for sec: exec, run, render, gen, place, push, rotate, ok, keys, logs, export, identity, cert.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
@@ -50,10 +50,16 @@
         <li><a href="#import">sec import</a></li>
         <li><a href="#export">sec export</a></li>
         <li><a href="#place">sec place</a></li>
+        <li><a href="#push">sec push</a></li>
+        <li><a href="#target">sec target</a></li>
         <li><a href="#rotate">sec rotate</a></li>
         <li><a href="#where">sec where</a></li>
         <li><a href="#audit">sec audit</a></li>
         <li><a href="#ls">sec ls / rm / get</a></li>
+        <li><a href="#keys">sec keys</a></li>
+        <li><a href="#logs">sec logs</a></li>
+        <li><a href="#ok">sec ok</a></li>
+        <li><a href="#id">sec id</a></li>
         <li><a href="#identity">sec identity</a></li>
         <li><a href="#recipients">sec recipients</a></li>
         <li><a href="#cert">sec cert</a></li>
@@ -107,10 +113,20 @@ sec init</pre>
   --tag a,b           comma-separated tags
   --raw               keep the trailing newline (PEM / JSON material)
   --place             after storing, re-apply to every recorded placement
+  --from FILE|DIR     store a whole file or folder instead of a value
 
 printf '%s' "$VALUE" | sec set STRIPE_KEY --source https://dashboard.stripe.com/apikeys</pre>
     <p>If the value arrived through an agent, sec says so and suggests rotating once the real source can
     mint a fresh one.</p>
+    <p>On a TTY the prompt echoes <code>*</code> per key. A <b>paste</b> shows only its last 3 characters
+    plus a character count — <code>*********XYZ  (12 chars)</code> — so you can check you pasted the right
+    key; typing another key hides them again. Long values cap at 32 stars.</p>
+    <p><code>--from</code> takes a cert, a key file, or a whole folder. A folder is stored as one encrypted
+    archive of its regular files and directories with their permission bits; symlinks, sockets and devices
+    are skipped and listed. The source path is <b>not</b> recorded as a destination — sec never writes
+    back over your original. Put it somewhere with <a href="#push"><code>sec push</code></a>.</p>
+<pre class="block">sec set TLS --from ./certs
+✓ TLS stored (v1, folder of 3 entries, 1824 bytes)</pre>
 
     <h2 id="gen">sec gen</h2>
     <p>Generate a password or token straight into the vault and/or a dotenv file. It is never displayed.</p>
@@ -134,7 +150,7 @@ sec exec -- curl -H "Authorization: Bearer {{STRIPE_KEY}}" https://api.stripe.co
 
     <h2 id="run">sec run</h2>
     <p>Run a command with secrets injected as environment variables; output scrubbed.</p>
-<pre class="block">sec run NAME[,NAME2][=ENVVAR] -- cmd args…
+<pre class="block">sec run NAME[,NAME2][=ENVVAR] [--] cmd args…        # -- is optional
 
 sec run APP_DB_PW=DB_PASSWORD -- ./migrate up</pre>
 
@@ -156,12 +172,26 @@ sec env ls FILE                     # list the keys in a dotenv file (names only
 <pre class="block">  --only a,b     comma-separated keys (default all)
   --tag a,b      tags for every imported secret
   --no-place     do not record the file as a placement</pre>
+    <p>The target is any existing file, whatever its name (<code>config.txt</code> works), or an
+    environment name (<code>production</code>) resolved to its dotenv. A <b>sealed export</b> from another
+    sec (see <a href="#export"><code>export --for</code></a>) is recognised by its header and opened with
+    this vault's key; a file sealed for a different key is refused.</p>
+<pre class="block">sec import .env.production
+sec import to-hz.sec          # sealed for this vault</pre>
 
     <h2 id="export">sec export</h2>
     <p><b>Owner-only.</b> Write chosen secrets to a .env file in plaintext.</p>
 <pre class="block">  --confirm      required: this writes plaintext values
   --only a,b     comma-separated names (default all)
-  --out PATH     output .env path (0600)</pre>
+  --out PATH     output .env path (0600)
+  --for KEY      seal for another sec instead (its sec id, or a saved target name) —
+                 no --confirm needed, the file is encrypted</pre>
+    <p>With <code>--for</code> the output is an age-armored file only that vault can open — safe to copy
+    over any channel. The other machine runs <code>sec import FILE</code>. It is a one-off copy: after a
+    rotate, export again. If you can ssh there, <a href="#push"><code>sec push NAME ssh://host</code></a>
+    is live and stays in sync instead.</p>
+<pre class="block">ssh hetzner sec id                                  # → age1…
+sec export --only DB_PW,TLS --for age1… --out to-hz.sec</pre>
 
     <h2 id="place">sec place</h2>
     <p>Record where a secret lives — and push the value there now.</p>
@@ -169,9 +199,58 @@ sec env ls FILE                     # list the keys in a dotenv file (names only
   --gh owner/repo[:environment][=SECRET]     GitHub Actions secret
   --gcp project[=SECRET_NAME]                GCP Secret Manager
   --render TEMPLATE=OUT                      rendered file
+  --path PATH[:MODE]                         write the value / file / folder whole at PATH
   --record-only                              record without pushing the value now
 
 sec place APP_DB_PW --gh muthuishere/app:production --gcp my-project</pre>
+
+    <h2 id="push">sec push</h2>
+    <p>Put secrets where a program already reads them, and <b>remember it</b> — so <code>rotate</code>,
+    <code>set --place</code> and <a href="#ok"><code>ok</code></a> keep that copy current. Programs never
+    call sec.</p>
+<pre class="block">sec push NAME[,NAME] WHERE [--as NEW] [--mode 0600] [--once]
+
+WHERE
+  ./app/.env                     KEY=value line(s) in a dotenv; other lines untouched
+  ./certs   /srv/vol/tls.key     the value / file / folder, written whole
+  ssh://[user@]host[:port]/path  a file / folder on a server — needs only sh + tar there
+  ssh://host                     into that server's own sec vault (sec set --raw over stdin)
+  docker://ctr/path              inside a running container   (also podman://)
+  k8s://pod/path                 inside a pod, via kubectl exec
+  prod                           a saved <a href="#target">target</a>
+
+  --as NEW          name / variable on the other end (one secret only)
+  --mode 0640       file mode when writing a file (default 0600)
+  --once            push now, don't remember it
+  --remote-sec P    sec binary on the other end (non-login ssh may need ~/.local/bin/sec)
+
+sec push DB_PW,API_KEY ./app/.env
+sec push TLS /srv/myapp/certs                 # then: docker run -v /srv/myapp/certs:/certs:ro …
+sec push TLS ssh://deploy@hetzner/etc/myapp/certs
+sec push DB_PW ssh://hetzner                  # hetzner's own sec now holds it
+sec push TLS docker://myapp/run/certs
+
+sec push NAME -- &lt;any command that runs on the other end&gt;    # escape hatch
+sec push TLS --path /etc/x -- kubectl exec -i pod/api --</pre>
+    <ul>
+      <li>The value travels on <b>stdin</b> — never argv, never a temp file on either side.</li>
+      <li>Files are written to a temp name and renamed; a folder is unpacked beside the old one and
+        swapped in, so a reader never sees half a write and removed files disappear from the copy.</li>
+      <li>Sending to <b>another machine</b> is <b>owner-only</b>: an agent cannot choose a new destination.
+        Re-pushes to destinations the owner already set up happen on rotate, whoever runs it.</li>
+      <li>A path takes one file/folder secret; several values go into a <code>.env</code> path. Editing
+        one line of a <code>.env</code> on a <i>remote</i> machine is not supported — push the whole file.</li>
+      <li>Every push is a <code>place.apply</code> line in the <a href="#logs">log</a>: version, destination,
+        ok or the error.</li>
+    </ul>
+
+    <h2 id="target">sec target</h2>
+    <p>Save a destination once, use its name in <code>push</code> (or a sec key in
+    <code>export --for</code>).</p>
+<pre class="block">sec target add prod ssh://deploy@hetzner/etc/myapp/certs
+sec target add hz age1…            # another sec's public key
+sec target ls
+sec target rm prod</pre>
 
     <h2 id="rotate">sec rotate</h2>
     <p>New value → re-pushed to every recorded placement → the steps it cannot do are printed rather
@@ -203,6 +282,51 @@ sec rotate APP_DB_PW --gen --hook hooks/postgres-rotate.sh</pre>
 <pre class="block">sec ls [--tag t] [--json]    # names, version, placement count, last use, source — never values
 sec rm NAME                  # delete a secret and its retired versions
 sec get NAME --print         # owner-only, and denied at the harness for agents</pre>
+
+    <h2 id="keys">sec keys</h2>
+    <p>Which keys a project needs are in the vault, and which are missing. With no arguments it reads
+    <code>.env.example</code> / <code>.env.sample</code> / <code>.env.template</code> / <code>*.tmpl</code>
+    in the current directory; or name any files. <code>{{NAME}}</code> placeholders count, otherwise dotenv
+    keys. Values are never read out. Exits 1 if anything is missing.</p>
+<pre class="block">sec keys
+.env.example  (3 keys)
+  ✓ DB_PW
+  ✓ API_KEY
+  ✗ STRIPE_KEY   missing — sec set STRIPE_KEY</pre>
+
+    <h2 id="logs">sec logs</h2>
+    <p>The audit log, newest last, every field shown; failures marked <code>✗</code>.
+    (<code>sec audit</code> still works as before.)</p>
+<pre class="block">sec logs [NAME]
+  --since 7d       window like 24h, 7d, 30d
+  --action A       set, push, place.apply, rotate, run, exec, …
+  -n 50            last N entries (0 = all)
+  --json           one JSON object per line</pre>
+
+    <h2 id="ok">sec ok</h2>
+    <p>The one command to run when unsure. It fixes what is provably safe and lists the rest, each with
+    the command to run.</p>
+<pre class="block">sec ok           # check and fix
+sec ok --dry     # change nothing
+sec ok -v        # also list every placement it skipped
+
+✓ vault unlocked, 14 secret(s), key in keyring
+✗ STRIPE_KEY missing (needed by .env.example)   → sec set STRIPE_KEY
+↻ DB_PW → file   /srv/myapp/.env  (DB_PW): has v2, vault has v3 → re-pushed ✓
+✓ 9 placement(s) hold the current version
+⚠ API_KEY v1 replaced 12 days ago — revoke it at its source, then   → sec rotate API_KEY --purge</pre>
+    <ul>
+      <li><b>Fixes:</b> a copy that exists and the log shows holds an older version — re-pushed.</li>
+      <li><b>Never touches:</b> a destination with no version on record (it will not push to GitHub, GCP
+        or a server on a guess), a file that was deleted (maybe on purpose), and placements recorded with a
+        relative path by an older sec (no telling what they were relative to).</li>
+      <li><b>Reports:</b> keys the project needs that the vault lacks; replaced versions older than 7 days
+        still to revoke; whether the agent hook is installed. Exit 1 when something needs you.</li>
+    </ul>
+
+    <h2 id="id">sec id</h2>
+    <p>Print this vault's public key (<code>age1…</code>) — what someone passes to
+    <code>sec export --for</code> to send you secrets.</p>
 
     <h2 id="identity">sec identity</h2>
 <pre class="block">sec identity                              # which backend holds the key

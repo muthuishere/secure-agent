@@ -22,6 +22,7 @@
       <li><a href="#demo">Demo</a></li>
       <li><a href="#how">How</a></li>
       <li><a href="#rotate">Rotate</a></li>
+      <li><a href="#push">Push</a></li>
       <li><a href="compare.html">Compare</a></li>
       <li><a href="docs.html">Docs</a></li>
       <li><a href="https://github.com/muthuishere/secure-agent">GitHub</a></li>
@@ -163,8 +164,8 @@ vault        <span class="ok">STRIPE_KEY.age (ciphertext)</span></pre>
     <div class="sec-kicker">past the env var</div>
     <h2 class="sec">Most brokers can only fill an environment variable.<br>Half of real config isn't one.</h2>
     <p class="sec-sub">A TLS key in a YAML file. A token in a CLI argument. A service-account JSON a
-    tool reads by path. <code>exec</code> and <code>render</code> cover the shapes <code>doppler run</code>
-    and <code>op run</code> structurally cannot.</p>
+    tool reads by path. <code>exec</code> and <code>render</code> cover the shapes an env-only
+    <code>doppler run</code> structurally cannot.</p>
     <div class="term">
       <div class="bar"><i></i><i></i><i></i><span>verbatim session</span></div>
 <pre><span class="p">$</span> <span class="c">cat conf.tmpl</span>
@@ -227,21 +228,81 @@ activity in the last 30 days (3):
   </div>
 </section>
 
+<!-- PUSH -->
+<section id="push">
+  <div class="wrap">
+    <div class="sec-kicker">past the laptop</div>
+    <h2 class="sec">Put it where the program already looks.</h2>
+    <p class="sec-sub">Programs never call sec. <code>sec push</code> writes the value — or a whole cert
+    file, or a whole folder — where the program reads it: a <code>.env</code>, a mounted volume, a server, a
+    container. And it remembers, so the next rotate rewrites every copy.</p>
+    <div class="term">
+      <div class="bar"><i></i><i></i><i></i><span>sec push NAMES WHERE</span></div>
+<pre><span class="p">$</span> <span class="c">sec set TLS --from ./certs</span>
+<span class="ok">✓</span> TLS stored (v1, folder of 3 entries, 1824 bytes)
+<span class="p">$</span> <span class="c">sec push DB_PW,API_KEY ./app/.env</span>
+<span class="ok">✓</span> DB_PW → file   /srv/myapp/app/.env  (DB_PW)
+<span class="ok">✓</span> API_KEY → file   /srv/myapp/app/.env  (API_KEY)
+<span class="p">$</span> <span class="c">sec push TLS /srv/myapp/certs</span>            <span class="cm"># docker run -v /srv/myapp/certs:/certs:ro …</span>
+<span class="p">$</span> <span class="c">sec push TLS ssh://hetzner/etc/myapp/certs</span>  <span class="cm"># needs only sh + tar there</span>
+<span class="p">$</span> <span class="c">sec push TLS docker://myapp/run/certs</span>
+<span class="p">$</span> <span class="c">sec rotate DB_PW --gen</span>
+<span class="ok">✓</span> DB_PW v1 → v2
+  <span class="ok">✓</span> file   /srv/myapp/app/.env  (DB_PW)
+</pre>
+    </div>
+    <p class="cap">The value travels on stdin — never argv, never a temp file. Files are written to a temp
+    name and renamed; folders are unpacked beside the old one and swapped in, permissions kept. Sending to
+    <b>another machine</b> is owner-only: an agent cannot pick a new destination, but re-pushes to the ones
+    you set up happen on every rotate.
+    <b>Another sec?</b> <code>sec push DB_PW ssh://hetzner</code> stores it in that machine's own vault and
+    keeps it in sync; with no ssh, <code>sec export --for &lt;its sec id&gt;</code> makes a sealed file only
+    that vault can <code>sec import</code>.</p>
+  </div>
+</section>
+
+<!-- OK -->
+<section id="ok">
+  <div class="wrap">
+    <div class="sec-kicker">one command when unsure</div>
+    <h2 class="sec">sec ok</h2>
+    <div class="term">
+      <div class="bar"><i></i><i></i><i></i><span>sec ok</span></div>
+<pre><span class="ok">✓</span> vault unlocked, 14 secret(s), key in keyring
+<span class="red">✗</span> STRIPE_KEY missing (needed by .env.example)   → sec set STRIPE_KEY
+↻ DB_PW → file   /srv/myapp/.env  (DB_PW): has v2, vault has v3 → re-pushed <span class="ok">✓</span>
+<span class="ok">✓</span> 9 placement(s) hold the current version
+<span class="warn">⚠</span> API_KEY v1 replaced 12 days ago — revoke it at its source, then   → sec rotate API_KEY --purge
+</pre>
+    </div>
+    <p class="cap">It fixes only what it can prove: a copy that exists and holds an older version. It will
+    not push anywhere it has no version on record, will not recreate a file you deleted, and lists
+    everything else with the exact command to run. <code>--dry</code> changes nothing.
+    <code>sec keys</code> answers "what is this project missing"; <code>sec logs</code> answers "what
+    happened".</p>
+    <p class="cap">sec is a flat, personal vault. Secrets scoped to a repo and an environment —
+    <code>myapp/prod</code> vs <code>myapp/dev</code>, shared with a team — belong in
+    <b>vsync</b>.</p>
+  </div>
+</section>
+
 <!-- VERBS -->
 <section>
   <div class="wrap">
     <div class="sec-kicker">the surface</div>
-    <h2 class="sec">Twenty verbs. You will use six.</h2>
+    <h2 class="sec">Thirty verbs. You will use eight.</h2>
     <div class="verbs">
       <div class="verb"><b>sec set</b><span>Store a value from stdin — <em>masked prompt on a TTY, never argv</em>.</span></div>
       <div class="verb"><b>sec exec</b><span>Run a command or script with <em>{{NAME}} placeholders filled</em>; output scrubbed.</span></div>
       <div class="verb"><b>sec run</b><span>Run a command with <em>NAME injected as an env var</em>; output scrubbed.</span></div>
       <div class="verb"><b>sec gen</b><span>Mint a password or token <em>straight into the vault and a .env</em> — never displayed.</span></div>
       <div class="verb"><b>sec where</b><span><em>Every placement and recent use</em> of a secret. The compromise-day question.</span></div>
+      <div class="verb"><b>sec push</b><span>Put values, files or folders <em>where a program reads them</em> — .env, volume, ssh://, docker:// — and remember it.</span></div>
+      <div class="verb"><b>sec ok</b><span><em>Check everything</em>; re-push stale copies, list what needs you.</span></div>
       <div class="verb"><b>sec rotate</b><span>New value → <em>re-pushed to every placement</em> → manual steps listed honestly.</span></div>
     </div>
     <p class="cap">The rest — <code>init · ls · env · render · import · export · place · recipients ·
-    identity · cert · audit · rm · get · skill</code> — are in the <a href="docs.html">docs</a>.
+    identity · cert · audit · logs · keys · target · id · seal · sh · agent · hook · rm · get · skill</code> — are in the <a href="docs.html">docs</a>.
     <code>sec cert</code> also does local TLS (CA, issue, self-signed) with keys written 0600, because
     a dev cert is a credential that usually ends up world-readable in <code>/tmp</code>.</p>
   </div>

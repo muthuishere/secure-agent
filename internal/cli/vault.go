@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/muthuishere/secure-agent/internal/bundle"
 	"github.com/muthuishere/secure-agent/internal/owner"
 	"github.com/muthuishere/secure-agent/internal/place"
 	"github.com/muthuishere/secure-agent/internal/store"
@@ -14,7 +15,7 @@ import (
 
 func init() {
 	register("init", "create the age identity + empty vault", cmdInit)
-	register("set", "store a value from stdin (masked prompt on a TTY)", cmdSet)
+	register("set", "store a value from stdin (masked prompt on a TTY), or a whole file/folder with --from PATH", cmdSet)
 	register("get", "print a value — owner-only, needs --print", cmdGet)
 	register("ls", "list secret names (never values); --json for agents", cmdLs)
 	register("rm", "delete a secret and its retired versions", cmdRm)
@@ -51,12 +52,14 @@ func cmdSet(args []string) error {
 	source := fs.String("source", "", "where this is minted/revoked (URL or note) — used by rotate")
 	raw := fs.Bool("raw", false, "keep trailing newline (PEM/JSON material)")
 	placeAll := fs.Bool("place", false, "after storing, re-apply to every recorded placement")
+	from := fs.String("from", "", "store a whole file or folder (certs, key dirs, …) instead of a value; add destinations with sec place --path / sec push --path")
+	kind := fs.String("kind", "", "internal: kind of the stdin value (file|dir) — set by sec push")
 	rest, err := parse(fs, args)
 	if err != nil {
 		return err
 	}
 	if len(rest) != 1 {
-		return fmt.Errorf("usage: sec set NAME [--tag a,b] [--source url] [--raw] [--place]  < value on stdin")
+		return fmt.Errorf("usage: sec set NAME [--tag a,b] [--source url] [--raw] [--place] [--from FILE|DIR]  < value on stdin")
 	}
 	name := rest[0]
 	if err := store.ValidName(name); err != nil {
@@ -66,14 +69,27 @@ func cmdSet(args []string) error {
 	if err != nil {
 		return err
 	}
-	val, err := readSecret("value for "+name, *raw)
-	if err != nil {
+	var val []byte
+	k := *kind
+	if *from != "" {
+		var skipped []string
+		if val, k, skipped, err = bundle.Read(*from); err != nil {
+			return err
+		}
+		for _, sk := range skipped {
+			fmt.Printf("  skip %s (not a regular file or folder)\n", sk)
+		}
+	} else if val, err = readSecret("value for "+name, *raw || k != ""); err != nil {
 		return err
+	}
+	if k != bundle.KindValue && k != bundle.KindFile && k != bundle.KindDir {
+		return fmt.Errorf("--kind must be file or dir")
 	}
 	m, err := s.Set(name, val, "set")
 	if err != nil {
 		return err
 	}
+	m.Kind = k
 	if *tags != "" {
 		m.Tags = splitList(*tags)
 	}
@@ -85,7 +101,15 @@ func cmdSet(args []string) error {
 	}
 	ag := owner.Agent()
 	s.Audit("set", ag, []string{name}, map[string]string{"version": fmt.Sprint(m.Version)})
-	fmt.Printf("✓ %s stored (v%d, %d bytes)\n", name, m.Version, len(val))
+	what := ""
+	switch k {
+	case bundle.KindFile:
+		what = "file, "
+	case bundle.KindDir:
+		files, _ := bundle.Files(val)
+		what = fmt.Sprintf("folder of %d entries, ", len(files))
+	}
+	fmt.Printf("✓ %s stored (v%d, %s%d bytes)\n", name, m.Version, what, len(val))
 	if m.Version > 1 {
 		fmt.Printf("  previous v%d retired — revoke it upstream", m.Version-1)
 		if m.Source != "" {

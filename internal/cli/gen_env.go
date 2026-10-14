@@ -15,8 +15,8 @@ import (
 func init() {
 	register("gen", "generate a password/token straight into the vault and/or a .env — never shown", cmdGen)
 	register("env", "env write FILE NAME[=VAR]… | env ls FILE — dotenv files without reading them", cmdEnv)
-	register("import", "import every KEY=value of a .env into the vault (file becomes a placement)", cmdImport)
-	register("export", "owner-only: write chosen secrets to a .env file", cmdExport)
+	register("import", "import a .env (every KEY=value; file becomes a placement) or a sealed export from another sec", cmdImport)
+	register("export", "owner-only: seal secrets for another sec (--for KEY), or write a plaintext .env (--confirm)", cmdExport)
 }
 
 func cmdGen(args []string) error {
@@ -199,9 +199,20 @@ func cmdImport(args []string) error {
 	if len(rest) != 1 {
 		return fmt.Errorf("usage: sec import TARGET [--tag t] [--only A,B] [--no-place]\n  TARGET is a path or an environment name (production, dev, local)")
 	}
-	path, _, how, err := resolveEnvSpecExisting(rest[0], "")
-	if err != nil {
-		return err
+	// Any existing file is imported as given, whatever its name; otherwise
+	// the target is resolved as an environment name (production, dev, …).
+	path, how := rest[0], "path"
+	if b, rerr := os.ReadFile(path); rerr == nil && isSealed(b) {
+		s, err := open()
+		if err != nil {
+			return err
+		}
+		return importSealed(s, path, b)
+	}
+	if st, serr := os.Stat(path); serr != nil || st.IsDir() {
+		if path, _, how, err = resolveEnvSpecExisting(rest[0], ""); err != nil {
+			return err
+		}
 	}
 	s, err := open()
 	if err != nil {
@@ -249,11 +260,12 @@ func cmdExport(args []string) error {
 	confirm := fs.Bool("confirm", false, "required: this writes plaintext values")
 	out := fs.String("out", "", "output .env path (0600)")
 	only := fs.String("only", "", "comma-separated names (default all)")
+	forKey := fs.String("for", "", "seal for another sec (its `sec id` key, or a saved name) instead of writing plaintext")
 	if _, err := parse(fs, args); err != nil {
 		return err
 	}
-	if !*confirm || *out == "" {
-		return fmt.Errorf("usage: sec export --out FILE --confirm [--only A,B]  (owner-only)")
+	if *out == "" || (!*confirm && *forKey == "") {
+		return fmt.Errorf("usage: sec export --out FILE --for KEY [--only A,B]   sealed for another sec (it runs: sec import FILE)\n       sec export --out FILE --confirm [--only A,B]  plaintext .env  (owner-only)")
 	}
 	if err := requireOwner("export"); err != nil {
 		return err
@@ -267,6 +279,9 @@ func cmdExport(args []string) error {
 		if names, err = s.List(); err != nil {
 			return err
 		}
+	}
+	if *forKey != "" {
+		return exportSealed(s, names, *forKey, *out)
 	}
 	vals, err := s.Resolve(names)
 	if err != nil {

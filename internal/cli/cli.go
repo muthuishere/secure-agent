@@ -110,14 +110,13 @@ func requireOwner(what string) error {
 	return nil
 }
 
-// readSecret gets a value without it touching argv: masked prompt on a TTY,
+// readSecret gets a value without it touching argv: masked prompt on a TTY
+// ('*' per key, last 3 chars shown after a paste),
 // otherwise raw stdin (heredoc / pipe). Trailing newline is stripped unless
 // --raw keeps it (multi-line material like PEM/JSON).
 func readSecret(prompt string, raw bool) ([]byte, error) {
 	if term.IsTerminal(int(os.Stdin.Fd())) {
-		fmt.Fprint(os.Stderr, prompt+" (input hidden): ")
-		b, err := term.ReadPassword(int(os.Stdin.Fd()))
-		fmt.Fprintln(os.Stderr)
+		b, err := readMasked(int(os.Stdin.Fd()), os.Stdin, os.Stderr, prompt+" (input masked): ")
 		if err != nil {
 			return nil, err
 		}

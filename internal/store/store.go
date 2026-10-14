@@ -34,14 +34,17 @@ import (
 var nameRe = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
 type Placement struct {
-	Type      string    `json:"type"`               // file | render | gh | gcp
+	Type      string    `json:"type"`               // file | render | gh | gcp | remote | path
 	Path      string    `json:"path,omitempty"`     // file/render: output path
 	Var       string    `json:"var,omitempty"`      // file: env var name
 	Template  string    `json:"template,omitempty"` // render: template path
 	Repo      string    `json:"repo,omitempty"`     // gh: owner/name
 	Env       string    `json:"env,omitempty"`      // gh: environment ("" = repo-level)
 	Project   string    `json:"project,omitempty"`  // gcp
-	Secret    string    `json:"secret,omitempty"`   // gh/gcp: remote secret name
+	Secret    string    `json:"secret,omitempty"`   // gh/gcp/remote: remote secret name
+	Via       []string  `json:"via,omitempty"`      // remote: transport argv, e.g. ssh host
+	Bin       string    `json:"bin,omitempty"`      // remote: sec binary on the other end
+	Mode      string    `json:"mode,omitempty"`     // path / remote+path: octal file mode, e.g. 0600
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
@@ -61,12 +64,19 @@ func (p Placement) String() string {
 		return fmt.Sprintf("gh     %s  repo-level  %s", p.Repo, p.Secret)
 	case "gcp":
 		return fmt.Sprintf("gcp    project=%s  %s", p.Project, p.Secret)
+	case "remote":
+		if p.Path != "" {
+			return fmt.Sprintf("remote %s  → %s", strings.Join(p.Via, " "), p.Path)
+		}
+		return fmt.Sprintf("remote %s  %s", strings.Join(p.Via, " "), p.Secret)
+	case "path":
+		return fmt.Sprintf("path   %s", p.Path)
 	}
 	return p.Type
 }
 
 func (p Placement) Key() string {
-	return strings.Join([]string{p.Type, p.Path, p.Var, p.Template, p.Repo, p.Env, p.Project, p.Secret}, "|")
+	return strings.Join([]string{p.Type, p.Path, p.Var, p.Template, p.Repo, p.Env, p.Project, p.Secret, strings.Join(p.Via, "\x00")}, "|")
 }
 
 type Retired struct {
@@ -82,6 +92,7 @@ type Meta struct {
 	Updated    time.Time   `json:"updated"`
 	Tags       []string    `json:"tags,omitempty"`
 	Source     string      `json:"source,omitempty"` // where it is minted/revoked (URL or note)
+	Kind       string      `json:"kind,omitempty"`   // "" value | file | dir (tar.gz) — see internal/bundle
 	Placements []Placement `json:"placements,omitempty"`
 	Retired    []Retired   `json:"retired,omitempty"`
 }

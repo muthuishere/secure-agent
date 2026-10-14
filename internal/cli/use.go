@@ -96,10 +96,14 @@ func redactTemplate(s string) string {
 }
 
 func cmdRun(args []string) error {
-	rest := args // no flags: the spec is positional and -- separates the command
-	if len(rest) < 3 || rest[1] != "--" {
-		return fmt.Errorf("usage: sec run NAME[,NAME2][=ENVVAR] -- cmd args…")
+	rest := args // no flags: the spec is positional; the command follows it (-- optional)
+	if len(rest) >= 2 && rest[1] == "--" {
+		rest = append(rest[:1:1], rest[2:]...)
 	}
+	if len(rest) < 2 {
+		return fmt.Errorf("usage: sec run NAME[,NAME2][=ENVVAR] cmd args…")
+	}
+	rest = append(rest[:1:1], append([]string{"--"}, rest[1:]...)...)
 	env := map[string]string{} // ENVVAR -> secret name
 	var names []string
 	for _, spec := range splitList(rest[0]) {

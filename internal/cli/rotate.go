@@ -3,6 +3,7 @@ package cli
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -26,6 +27,7 @@ func cmdPlace(args []string) error {
 	gh := fs.String("gh", "", "owner/repo[:environment][=SECRET_NAME] GitHub Actions secret")
 	gcp := fs.String("gcp", "", "project[=SECRET_NAME] GCP Secret Manager")
 	render := fs.String("render", "", "TEMPLATE=OUT rendered file")
+	pathSpec := fs.String("path", "", "PATH[:MODE] write the value/file/folder whole at PATH (e.g. a mounted volume)")
 	dry := fs.Bool("record-only", false, "record without pushing the value now")
 	rest, err := parse(fs, args)
 	if err != nil {
@@ -65,8 +67,13 @@ func cmdPlace(args []string) error {
 		}
 		specs = append(specs, p)
 	}
+	if *pathSpec != "" {
+		pth, mode, _ := strings.Cut(*pathSpec, ":")
+		abs, _ := filepath.Abs(pth)
+		specs = append(specs, store.Placement{Type: "path", Path: abs, Mode: mode})
+	}
 	if len(specs) == 0 {
-		return fmt.Errorf("give at least one of --file/--gh/--gcp/--render")
+		return fmt.Errorf("give at least one of --file/--gh/--gcp/--render/--path")
 	}
 	val := ""
 	if !*dry {
